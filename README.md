@@ -1,4 +1,51 @@
-# 컴퓨터 비전 학습 코드
+# Week 10 — 컴퓨터 비전 학습 환경
+
+## 이 브랜치의 실행 방법
+
+```bash
+git clone --branch week10 git@github.com:arching3/dev.git
+cd dev
+python build.py --setup-only
+```
+
+아직 학습 코드와 데이터셋은 추가되지 않았습니다. 현재는 `--setup-only`로 환경을 준비해 `.ipynb` 작업을 시작할 수 있습니다. 옵션 없이 실행하면 기본 진입 파일인 `train.py`를 확인하며, 없으면 설치 전에 안내와 함께 종료합니다.
+
+학습 코드를 추가한 뒤에는 다음과 같이 실행합니다. 아래 파일명과 인자는 사용 예시이며, 실제 학습 코드에 맞춰 지정해야 합니다.
+
+```bash
+python build.py
+python build.py --script training.py -- --epochs 10
+```
+
+`--script` 경로와 학습 작업 디렉터리는 `build.py`가 있는 디렉터리를 기준으로 합니다. 다른 디렉터리에서 `python /path/to/dev/build.py --setup-only`로 호출해도 환경과 패키지 파일 위치는 동일합니다. 재실행 시 `.venv`를 재사용하고 패키지 설치를 다시 확인합니다. 기존 환경의 불필요한 패키지를 제거하거나 Python 버전을 바꾸지는 않습니다.
+
+### 노트북 사용
+
+VS Code에서는 노트북 커널 선택 메뉴에서 이 저장소의 `.venv` Python을 선택합니다. 또는 환경 구성 후 다음 명령으로 JupyterLab을 실행합니다.
+
+```bash
+# Linux
+.venv/bin/python -m jupyterlab
+
+# Windows PowerShell
+.venv/Scripts/python.exe -m jupyterlab
+```
+
+이 JupyterLab에서 `Python 3 (ipykernel)` 커널을 사용합니다. `ipykernel`, JupyterLab은 requirements에 포함되어 있습니다. 사용자 전역 커널 등록은 자동으로 수행하지 않습니다.
+
+### 호환 조건과 공통 개발 환경
+
+`requirements.txt`는 상위 프로젝트의 공통 `../.venv`에서 `pip freeze`로 추출한 전체 패키지 목록입니다. Python **3.14.4**, Linux, PyTorch **2.14.0+cu130**, torchvision **0.29.1+cu130**을 기준으로 하며, CUDA 13.0 휠을 받기 위한 추가 패키지 인덱스를 포함합니다. 다른 주차에서 사용하는 패키지도 포함되어 있습니다.
+
+`build.py`의 Python 경로 처리는 Linux와 Windows를 지원하지만, 현재 requirements에는 Linux용 NVIDIA 패키지와 Triton 등도 고정되어 있습니다. 따라서 Windows, macOS, 다른 CPU 아키텍처에서의 패키지 설치를 보장하지 않습니다. 해당 플랫폼에서는 호환되는 패키지와 PyTorch 배포 구성을 먼저 조정해야 합니다. GPU 사용에는 호환 NVIDIA 드라이버가 필요하며, 드라이버는 이 스크립트에서 설치하지 않습니다. Python에 `venv`와 `ensurepip` 지원이 포함되어 있어야 하고, 최초 패키지 설치에는 네트워크가 필요합니다.
+
+현재 프로젝트에서 개발할 때는 기존 공통 `../.venv`를 계속 사용할 수 있습니다. `build.py`를 실행하면 별도의 로컬 `.venv`가 생성되며 공통 환경을 수정하지 않습니다. 공통 환경의 패키지가 바뀌면 해당 환경에서 목록을 다시 추출하고, 추가 인덱스 설정을 유지하며 requirements를 갱신합니다.
+
+환경 생성과 실행 절차는 검증하지만, 현재 스냅샷 전체를 새 환경에 다운로드하여 설치하는 검증과 실제 GPU 학습 검증은 별도 작업입니다.
+
+---
+
+## 저장소 운영 방향
 
 주차별 학습 코드를 관리하고, 더 높은 컴퓨팅 성능을 갖춘 환경에서 한 번의 명령으로 가상환경 구성, 패키지 설치, 학습 실행을 이어가는 저장소입니다.
 
