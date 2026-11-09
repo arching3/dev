@@ -8,6 +8,29 @@
 - `week10`: 10주차 학습 코드, `build.py`, `requirements.txt`, 실행 안내를 관리합니다.
 - 이후 학습 코드는 해당 주차 브랜치에서 관리합니다.
 
+## Windows에서 Git 설치
+
+CMD 또는 PowerShell에서 다음 명령으로 Git CLI를 설치합니다. `winget`이 없다면 Microsoft Store에서 **앱 설치 관리자(App Installer)**를 설치하거나 업데이트하세요.
+
+```powershell
+winget install --id Git.Git -e --source winget
+```
+
+설치가 완료되면 터미널을 닫았다가 다시 열고 설치 여부를 확인합니다.
+
+```powershell
+git --version
+```
+
+SSH 키를 아직 설정하지 않았다면 HTTPS 주소로 원하는 브랜치를 복제할 수 있습니다. 비공개 저장소는 GitHub 인증이 필요합니다.
+
+```powershell
+git clone --branch week10 https://github.com/arching3/dev.git
+cd dev
+```
+
+이후 아래 명령의 SSH 주소도 `https://github.com/arching3/dev.git`으로 바꿔 사용할 수 있습니다. 설치 명령은 [Git 공식 Windows 설치 안내](https://git-scm.com/install/windows)를 참고하세요.
+
 ## 저장소 복제와 브랜치 선택
 
 Git이 설치되어 있어야 합니다. 아래 SSH 주소를 사용하려면 GitHub 계정의 SSH 키 인증이 설정되어 있어야 합니다. 두 복제 방법 중 하나를 선택하세요.
