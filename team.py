@@ -143,14 +143,14 @@ def evaluate_history(history, output_dir=None, show=True):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(len(histories), 2, figsize=(14, 5 * len(histories)),
+    fig, axes = plt.subplots(len(histories), 2, figsize=(14, 6.5 * len(histories)),
                              squeeze=False, sharey="col")
     for row, (name, values) in enumerate(histories.items()):
         print(f"\n[{name}]")
-        print(f"첫 에포크: 검증 손실 {values[0, 3]:.5f}, 검증 정확도 {values[0, 4]:.2%}")
-        print(f"최종 상태: 검증 손실 {values[-1, 3]:.5f}, 검증 정확도 {values[-1, 4]:.2%}")
+        print(f"First epoch: validation loss {values[0, 3]:.5f}, validation accuracy {values[0, 4]:.2%}")
+        print(f"Final epoch: validation loss {values[-1, 3]:.5f}, validation accuracy {values[-1, 4]:.2%}")
         best = values[np.argmax(values[:, 4])]
-        print(f"최고 검증 정확도: {best[4]:.2%} (epoch {int(best[0])})")
+        print(f"Best validation accuracy: {best[4]:.2%} (epoch {int(best[0])})")
         for column, (metric, train_column, val_column) in enumerate(
                 (("Loss", 1, 3), ("Accuracy", 2, 4))):
             ax = axes[row, column]
@@ -161,6 +161,25 @@ def evaluate_history(history, output_dir=None, show=True):
                 ax.set_ylim(0, 1)
             ax.legend()
             ax.grid(alpha=0.3)
+            # 영어 요약을 축 아래에 배치해 학습 곡선을 가리지 않는다.
+            if metric == "Loss":
+                summary = (
+                    "Validation loss\n"
+                    f"First epoch ({int(values[0, 0])}): {values[0, 3]:.5f}\n"
+                    f"Final epoch ({int(values[-1, 0])}): {values[-1, 3]:.5f}"
+                )
+            else:
+                summary = (
+                    "Validation accuracy\n"
+                    f"First: {values[0, 4]:.2%} | Final: {values[-1, 4]:.2%}\n"
+                    f"Best: {best[4]:.2%} at epoch {int(best[0])}"
+                )
+                ax.scatter(best[0], best[4], color="tab:red", marker="*",
+                           s=100, zorder=3)
+            ax.text(0, -0.25, summary, transform=ax.transAxes,
+                    ha="left", va="top", fontsize=10,
+                    bbox={"boxstyle": "round,pad=0.5", "facecolor": "#f3f4f6",
+                          "edgecolor": "#d1d5db"})
     fig.tight_layout()
     if output_dir is not None:
         fig.savefig(output_dir / "experiments.png")
