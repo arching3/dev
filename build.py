@@ -52,7 +52,8 @@ def main(argv=None):
 
         print(f"Installing dependencies with {python}", flush=True)
         subprocess.run(
-            [str(python), "-m", "pip", "install", "-r", str(requirements)],
+            [str(python), "-m", "pip", "install", "--upgrade",
+             "--upgrade-strategy", "eager", "-r", str(requirements)],
             cwd=ROOT, check=True,
         )
         if args.setup_only:
