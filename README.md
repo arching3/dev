@@ -55,6 +55,46 @@ VS Code에서는 노트북 커널 선택 메뉴에서 이 저장소의 `.venv` P
 - `week10`: 10주차 학습 코드, `build.py`, `requirements.txt`, 실행 안내를 관리합니다.
 - 이후 학습 코드는 해당 주차 브랜치에서 관리합니다.
 
+## 저장소 복제와 브랜치 선택
+
+Git이 설치되어 있어야 합니다. 아래 SSH 주소를 사용하려면 GitHub 계정의 SSH 키 인증이 설정되어 있어야 합니다. 두 복제 방법 중 하나를 선택하세요.
+
+### 특정 브랜치만 복제
+
+10주차 작업만 필요한 경우:
+
+```bash
+git clone --branch week10 --single-branch git@github.com:arching3/dev.git
+cd dev
+python build.py --setup-only
+```
+
+저장소 소개만 확인하려면 `--branch main`으로 변경합니다. `main`에는 실행 파일이 없으므로 `build.py`는 학습 브랜치에서 실행하세요.
+
+`--single-branch`로 복제한 뒤 다른 브랜치도 필요해지면, 예를 들어 다음과 같이 가져올 수 있습니다.
+
+```bash
+git fetch origin main:refs/remotes/origin/main
+git switch main
+```
+
+### 전체 브랜치를 가져온 뒤 전환
+
+여러 주차를 오가며 작업하려면 `--single-branch` 없이 복제합니다. 원격 브랜치는 가져오지만, 각 브랜치의 파일은 선택한 브랜치로 전환할 때 작업 디렉터리에 나타납니다.
+
+```bash
+git clone git@github.com:arching3/dev.git
+cd dev
+git branch -a
+git switch week10
+python build.py --setup-only
+
+# 저장소 소개로 돌아가기
+git switch main
+```
+
+이미 복제한 저장소라면 해당 디렉터리에서 `git fetch origin`으로 브랜치 정보를 갱신하고 `git switch week10`으로 전환합니다. 로컬에 없는 브랜치가 `origin`에 있으면 `git switch`가 추적 브랜치를 자동 생성합니다. 전환 전 작업 내용은 커밋하거나 `git stash`로 보관하세요.
+
 ## 목표 실행 흐름
 
 실행 플랫폼에는 Python이 설치되어 있다고 가정합니다. 각 주차 브랜치에서 다음 명령으로 실행합니다.
