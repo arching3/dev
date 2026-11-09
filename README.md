@@ -8,14 +8,25 @@ cd dev
 python build.py --setup-only
 ```
 
-아직 학습 코드와 데이터셋은 추가되지 않았습니다. 현재는 `--setup-only`로 환경을 준비해 `.ipynb` 작업을 시작할 수 있습니다. 옵션 없이 실행하면 기본 진입 파일인 `train.py`를 확인하며, 없으면 설치 전에 안내와 함께 종료합니다.
+`--setup-only`는 환경만 준비하므로 `.ipynb` 작업에도 사용할 수 있습니다. 학습 스크립트는 `team.py`이며, CIFAR-10 데이터셋은 최초 실행 시 `data/`로 다운로드합니다. `build.py`의 기본 진입 파일은 `train.py`이므로 아래와 같이 `--script team.py`를 지정하세요.
 
-학습 코드를 추가한 뒤에는 다음과 같이 실행합니다. 아래 파일명과 인자는 사용 예시이며, 실제 학습 코드에 맞춰 지정해야 합니다.
+환경 구성과 두 실험을 한 번에 실행하려면:
 
 ```bash
-python build.py
-python build.py --script training.py -- --epochs 10
+python build.py --script team.py
+
+# 두 실험의 에포크를 모두 10으로 변경하고 그래프를 화면에도 표시
+python build.py --script team.py -- --epochs 10 --show
 ```
+
+`team.py`는 다음 두 실험을 순서대로 수행합니다. 각 실험에 공통 `fit`을 적용하고 `evaluate_history`가 2행 × 2열 subplot으로 손실과 정확도를 비교합니다. tqdm으로 실험·에포크·배치 진행을 표시합니다.
+
+| 실험 | 모델·데이터 | 기본 에포크 | Optimizer | 학습률 | 배치 크기 |
+| --- | --- | --- | --- | --- | --- |
+| 2 | CNN_v4, 정규화 | 50 | Adam | 0.001 | 100 |
+| 3 | CNN_v4, 정규화 + RandomHorizontalFlip + RandomErasing | 100 | Adam | 0.001 | 100 |
+
+각 실험의 `history.csv`와 `model_final.pth`는 `outputs/experiment2_cnn_v4/`, `outputs/experiment3_cnn_v4_aug/`에 저장됩니다. 비교 그래프는 `outputs/experiments.png`로 저장되며, `--show`로 화면에도 표시할 수 있습니다.
 
 `--script` 경로와 학습 작업 디렉터리는 `build.py`가 있는 디렉터리를 기준으로 합니다. 다른 디렉터리에서 `python /path/to/dev/build.py --setup-only`로 호출해도 환경과 패키지 파일 위치는 동일합니다. 재실행 시 `.venv`를 재사용하고 패키지 설치를 다시 확인합니다. 기존 환경의 불필요한 패키지를 제거하거나 Python 버전을 바꾸지는 않습니다.
 
