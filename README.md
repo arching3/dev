@@ -8,18 +8,31 @@ cd dev
 python build.py --setup-only
 ```
 
-`--setup-only`는 환경만 준비하므로 `.ipynb` 작업에도 사용할 수 있습니다. 학습 스크립트는 `team.py`이며, CIFAR-10 데이터셋은 최초 실행 시 `data/`로 다운로드합니다. `build.py`의 기본 진입 파일은 `train.py`이므로 아래와 같이 `--script team.py`를 지정하세요.
+`--setup-only`는 환경만 준비하므로 `.ipynb` 작업에도 사용할 수 있습니다. 학습 진입 파일은 `train.py`(build.py 기본값)이며, CIFAR-10 데이터셋은 `data/`를 사용하고 없으면 최초 실행 시 다운로드합니다.
 
-환경 구성과 두 실험을 한 번에 실행하려면:
+| 파일 | 역할 |
+| --- | --- |
+| `config.py` | 공통 하이퍼파라미터·경로(`Config`) |
+| `experiments.py` | 실험 정의 레지스트리(`register(Experiment(...))`) |
+| `net.py` | 모델(CNN_v2, CNN_v3, CNN_v4) |
+| `utils.py` | `fit`, `evaluate_history` |
+| `train.py` | 실험 번호를 받아 학습·저장·비교 그래프 생성 |
+
+실험 번호를 지정해 실행합니다. 여러 번호를 함께 지정하면 한 번의 실행에서 순서대로 학습하고 하나의 그래프로 비교합니다.
 
 ```bash
-python build.py --script team.py
+python build.py -- 2            # 환경 구성 후 실험 2
+python build.py -- 2 3          # 실험 2, 3
+python train.py all             # 등록된 모든 실험 (환경이 이미 있을 때)
+python train.py --list          # 실험 목록
 
-# 두 실험의 에포크를 모두 10으로 변경하고 그래프를 화면에도 표시
-python build.py --script team.py -- --epochs 10 --show
+# 선택한 실험의 에포크를 모두 10으로 변경하고 그래프를 화면에도 표시
+python train.py 2 3 --epochs 10 --show
 ```
 
-`team.py`는 다음 두 실험을 순서대로 수행합니다. 각 실험에 공통 `fit`을 적용하고 `evaluate_history`가 2행 × 2열 subplot으로 손실과 정확도를 비교합니다. tqdm으로 실험·에포크·배치 진행을 표시합니다.
+설정 우선순위는 `config.py` 기본값 < 실험별 `overrides` < 명령행 인자(`--epochs`, `--batch-size`, `--lr`, `--seed`, `--num-workers`, `--data-dir`, `--output-dir`, `--optimizer`, `--optimizer-param`)입니다.
+
+Optimizer는 `config.py`의 `optimizer`(이름: `adam`, `adamw`, `sgd`, `rmsprop` 또는 `torch.optim` 클래스명)와 `optimizer_params`(lr 이외 인자)로 정합니다. 실험별로는 `overrides={"optimizer": "sgd", "optimizer_params": {"momentum": 0.9}, "lr": 0.01}`처럼, 명령행에서는 `--optimizer sgd --optimizer-param momentum=0.9 --lr 0.01`처럼 바꿉니다. optimizer가 같으면 `optimizer_params`는 병합되고, optimizer가 바뀌면 새로 지정한 값으로 대체됩니다. 새 실험은 `experiments.py` 하단에 `register(Experiment(number=..., key=..., title=..., model=..., overrides={...}))`를 추가하면 됩니다.
 
 | 실험 | 모델·데이터 | 기본 에포크 | Optimizer | 학습률 | 배치 크기 |
 | --- | --- | --- | --- | --- | --- |
@@ -70,8 +83,8 @@ python build.py --setup-only --torch-backend cpu
 # CUDA 배포 태그를 직접 선택 (예시; 해당 환경과 호환되어야 함)
 python build.py --setup-only --torch-backend cu128
 
-# 자동 선택 후 두 실험 실행
-python build.py --script team.py
+# 자동 선택 후 실험 2, 3 실행
+python build.py -- 2 3
 ```
 
 자동 모드에서 NVIDIA 드라이버가 감지됐지만 호환 휠이 없으면 안내와 함께 중단합니다. Python을 지원 버전으로 변경하거나 드라이버를 갱신하세요. CPU 설치는 `--torch-backend cpu`로 명시할 수 있습니다. 기존 `.venv`가 있으면 그 환경의 Python으로 호환성을 판단하며, Python 버전 자체는 변경하지 않습니다.
