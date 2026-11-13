@@ -61,13 +61,14 @@ VS Code에서는 노트북 커널 선택 메뉴에서 이 저장소의 `.venv` P
 
 `requirements.txt`는 학습과 노트북 작업에 필요한 주요 패키지 이름만 기록합니다. 버전, CUDA 전용 인덱스, NVIDIA 런타임과 Triton의 직접 지정을 제거하고, 하위 의존성은 pip가 현재 Python과 플랫폼에 맞춰 결정하도록 합니다.
 
-`build.py`는 먼저 가상환경의 pip를 갱신한 뒤, 아래 순서로 PyTorch를 설치합니다.
+`build.py`는 CUDA 버전과 Python 버전을 함께 고려해 아래 순서로 PyTorch를 설치합니다.
 
-1. `nvidia-smi`에서 드라이버가 지원하는 최대 CUDA 버전을 확인합니다. NVIDIA 드라이버를 감지하지 못하면 CPU용을 선택하며, macOS에서는 기본 플랫폼용 휠을 사용합니다.
+1. `nvidia-smi`(PATH와 OS별 기본 위치, 종료 코드와 무관하게 출력 확인) 또는 드라이버 라이브러리(`libcuda`/`nvcuda.dll`)에서 드라이버가 지원하는 최대 CUDA 버전을 확인합니다. 감지하지 못하면 원인을 출력하고 CPU용을 선택하며, macOS에서는 기본 플랫폼용 휠을 사용합니다.
 2. [PyTorch 공식 휠 인덱스](https://download.pytorch.org/whl/)에서 CUDA 배포 목록을 가져와, 드라이버 지원 범위 안에서 최신 CUDA 후보부터 확인합니다.
-3. 가상환경의 `pip index versions`로 해당 Python 버전·운영체제·아키텍처에 맞는 `torch`와 `torchvision` 휠이 있는지 확인합니다. 없으면 다음 CUDA 후보로 넘어갑니다.
-4. 선택한 인덱스에서 `torch`와 `torchvision`을 다시 설치하고, 해당 버전을 이번 설치에만 사용하는 임시 제약 파일에 기록합니다. 나머지 패키지를 갱신할 때 선택한 CUDA 빌드가 다른 빌드로 교체되지 않도록 합니다. `requirements.txt`에는 버전을 기록하지 않습니다.
-5. 다른 패키지와 하위 의존성은 `--upgrade --upgrade-strategy eager`로 갱신합니다. 설치 후 `pip check`를 실행하고 PyTorch·CUDA·cuDNN 버전과 CUDA 사용 가능 여부를 출력합니다.
+3. 각 CUDA 인덱스의 휠 목록에서 이 운영체제·아키텍처(glibc 포함)에 맞는 Python ABI별 `torch`/`torchvision` 버전 쌍을 구합니다. torchvision `0.N`은 torch `2.(N-15)`와 짝을 이루므로, torch만 먼저 나온 경우에도 서로 맞는 최신 쌍을 고릅니다.
+4. 사용할 Python을 정합니다. 기존 `.venv`가 있으면 그 Python으로 고정하고, 없으면 `--python` 지정값 → 현재 Python → 시스템에서 찾은 다른 Python(PATH의 `python3.X`, Windows `py -0p`) 중 휠이 있는 높은 버전 순으로 고릅니다. 최신 CUDA 후보를 우선하며, 맞는 Python이 없으면 다음 CUDA 후보로 넘어갑니다.
+5. 선택한 Python으로 `.venv`를 만들고, 선택한 인덱스에서 `torch`와 `torchvision`을 정확한 버전으로 다시 설치하고, 해당 버전을 이번 설치에만 사용하는 임시 제약 파일에 기록합니다. 나머지 패키지를 갱신할 때 선택한 CUDA 빌드가 다른 빌드로 교체되지 않도록 합니다. `requirements.txt`에는 버전을 기록하지 않습니다.
+6. 다른 패키지와 하위 의존성은 `--upgrade --upgrade-strategy eager`로 갱신합니다. 설치 후 `pip check`를 실행하고 PyTorch·CUDA·cuDNN 버전과 CUDA 사용 가능 여부를 출력합니다.
 
 cuDNN은 설치한 PyTorch가 요구하는 호환 버전을 사용합니다. 독립적인 최신 cuDNN을 강제하지 않습니다. 두 PyTorch 휠은 기존 CPU/CUDA 빌드를 확실히 교체하기 위해 재실행 시에도 다시 설치하므로 다운로드가 발생할 수 있습니다.
 
@@ -83,11 +84,17 @@ python build.py --setup-only --torch-backend cpu
 # CUDA 배포 태그를 직접 선택 (예시; 해당 환경과 호환되어야 함)
 python build.py --setup-only --torch-backend cu128
 
+# 새 .venv의 Python을 지정 (버전 또는 경로)
+python build.py --setup-only --python 3.12
+
+# 기존 .venv의 Python이 호환되지 않을 때 다시 생성
+python build.py --setup-only --recreate-venv
+
 # 자동 선택 후 실험 2, 3 실행
 python build.py -- 2 3
 ```
 
-자동 모드에서 NVIDIA 드라이버가 감지됐지만 호환 휠이 없으면 안내와 함께 중단합니다. Python을 지원 버전으로 변경하거나 드라이버를 갱신하세요. CPU 설치는 `--torch-backend cpu`로 명시할 수 있습니다. 기존 `.venv`가 있으면 그 환경의 Python으로 호환성을 판단하며, Python 버전 자체는 변경하지 않습니다.
+자동 모드에서 NVIDIA 드라이버가 감지됐지만 호환 휠이 없으면 안내와 함께 중단합니다. Python을 지원 버전으로 변경하거나 드라이버를 갱신하세요. CPU 설치는 `--torch-backend cpu`로 명시할 수 있습니다. 기존 `.venv`가 있으면 그 환경의 Python으로 호환성을 판단하며, 호환되지 않으면 지원 Python 버전 목록과 함께 중단합니다. 이때 `--recreate-venv`(필요하면 `--python 3.12`)로 `.venv`를 삭제 후 다시 만들 수 있습니다.
 
 패키지가 해당 운영체제·CPU 아키텍처·Python 버전을 지원해야 하며, 버전 미지정만으로 모든 플랫폼의 호환성이 보장되지는 않습니다. 자동 선택은 드라이버와 휠 배포 여부를 기준으로 하며, 구형 GPU의 연산 아키텍처까지 보장하지 않습니다. NVIDIA 드라이버와 `nvidia-smi`는 실행 환경에서 준비해야 하고, AMD ROCm 자동 선택은 지원하지 않습니다. 드라이버는 이 스크립트에서 설치하지 않습니다. Python의 `venv`·`ensurepip` 지원과 PyPI·PyTorch 인덱스 접근이 가능한 네트워크가 필요합니다. 특수한 플랫폼은 [PyTorch 공식 설치 선택기](https://pytorch.org/get-started/locally/)도 참고하세요.
 
