@@ -76,17 +76,18 @@ register(Experiment(
     key="experiment1_cnn_v2",
     title="Experiment 1: CNN_v2",
     model=CNN_v2,
-    overrides={"epochs": 30, "optimizer":"sgd"},
+    # BatchNorm 없는 CNN_v2 + 순수 SGD는 기울기가 작아 lr=0.001이면 사실상 학습되지 않는다 (노트북: lr=0.01).
+    overrides={"epochs": 30, "optimizer": "sgd", "lr": 0.01},
 ))
 
 # ---------------------------------------------------------------- experiments
-# 실험 2: CNN_v2, 증강 없이 정규화만, SGD+momentum=0.9, 30 epochs.
+# 실험 2: CNN_v2, 증강 없이 정규화만, SGD(lr=0.01)+momentum=0.9, 30 epochs.
 register(Experiment(
     number=2,
     key="experiment2_cnn_v2",
     title="Experiment 2: CNN_v2",
     model=CNN_v2,
-    overrides={"epochs": 30, "optimizer": "sgd", "optimizer_params": {"momentum": 0.9}},
+    overrides={"epochs": 30, "optimizer": "sgd", "lr": 0.01, "optimizer_params": {"momentum": 0.9}},
 ))
 
 # ---------------------------------------------------------------- experiments
