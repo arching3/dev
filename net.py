@@ -199,6 +199,11 @@ class CNN_v5(nn.Module):
             self.maxpool,
             self.dropout1,
             ResidualBlock(64, 128),
+            ResidualBlock(128, 128),
+            ResidualBlock(128, 128),
+            ResidualBlock(128, 128),
+            ResidualBlock(128, 128),
+            ResidualBlock(128, 128),
             self.maxpool,
             self.dropout2,
             )
