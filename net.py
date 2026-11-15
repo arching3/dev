@@ -163,3 +163,55 @@ class CNN_v4(nn.Module):
         x2 = self.flatten(x1)
         x3 = self.classifier(x2)
         return x3
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=(1,1))
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=(1,1))
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.shortcut = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 1),
+            nn.BatchNorm2d(out_channels),
+        )
+
+    def forward(self, x):
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        return self.relu(out + self.shortcut(x))
+
+class CNN_v5(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.relu = nn.ReLU(inplace=True)
+        self.flatten = nn.Flatten()
+        self.maxpool = nn.MaxPool2d((2,2))
+        self.l1 = nn.Linear(8*8*128, 128)
+        self.l2 = nn.Linear(128, num_classes)
+        self.dropout1 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(0.3)
+        self.dropout3 = nn.Dropout(0.4)
+
+        self.features = nn.Sequential(
+            ResidualBlock(3, 64),
+            self.maxpool,
+            self.dropout1,
+            ResidualBlock(64, 128),
+            self.maxpool,
+            self.dropout2,
+            )
+
+        self.classifier = nn.Sequential(
+            self.l1,
+            self.relu,
+            self.dropout3,
+            self.l2
+        )
+
+    def forward(self, x):
+        x1 = self.features(x)
+        x2 = self.flatten(x1)
+        x3 = self.classifier(x2)
+        return x3
