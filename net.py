@@ -220,3 +220,46 @@ class CNN_v5(nn.Module):
         x2 = self.flatten(x1)
         x3 = self.classifier(x2)
         return x3
+
+class CNN_v6(nn.Module):
+    """Eight residual blocks with batch normalization and spatial dropout between blocks."""
+
+    def __init__(self, num_classes):
+        super().__init__()
+        self.features = nn.Sequential(
+            ResidualBlock(3, 64),   # 1
+            nn.MaxPool2d((2, 2)),
+            nn.BatchNorm2d(64),
+            nn.Dropout2d(0.2),
+            ResidualBlock(64, 128), # 2
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.2),
+            ResidualBlock(128, 128), # 3
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.2),
+            ResidualBlock(128, 128), # 4
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.2),
+            ResidualBlock(128, 128), # 5
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.2),
+            ResidualBlock(128, 128), # 6
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.2),
+            ResidualBlock(128, 128), # 7
+            nn.BatchNorm2d(128),
+            nn.Dropout2d(0.2),
+            ResidualBlock(128, 128), # 8
+            nn.MaxPool2d((2, 2)),
+            nn.Dropout2d(0.3),
+        )
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(8 * 8 * 128, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.4),
+            nn.Linear(128, num_classes),
+        )
+
+    def forward(self, x):
+        return self.classifier(self.features(x))
