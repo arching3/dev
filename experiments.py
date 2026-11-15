@@ -10,7 +10,7 @@ from typing import Any, Callable, Mapping
 import torch.nn as nn
 from torchvision import transforms
 
-from net import CNN_v2, CNN_v3, CNN_v4, CNN_v5  # noqa: F401  (새 실험에서 바로 쓰도록 노출)
+from net import CNN_v2, CNN_v3, CNN_v4, CNN_v5, CNN_v6  # noqa: F401  (새 실험에서 바로 쓰도록 노출)
 
 
 # ---------------------------------------------------------------- transforms
@@ -138,6 +138,17 @@ register(Experiment(
     key="experiment7_cnn_v5_aug",
     title="Experiment 7: CNN_v5 + augmentation",
     model=CNN_v5,
+    train_transform=augment_transform,
+    overrides={"epochs": 30, "optimizer": "adam"},
+))
+
+# ---------------------------------------------------------------- experiments
+# 실험 8: CNN_v6, 8 residual blocks + inter-block BatchNorm/Dropout + augmentation, Adam.
+register(Experiment(
+    number=8,
+    key="experiment8_cnn_v6_aug",
+    title="Experiment 8: CNN_v6 + augmentation",
+    model=CNN_v6,
     train_transform=augment_transform,
     overrides={"epochs": 30, "optimizer": "adam"},
 ))
