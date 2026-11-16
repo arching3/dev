@@ -11,31 +11,51 @@
     (추적되지 않는 파일 — ckpts/, histories/ 등 학습 결과 — 는 지우지 않는다.)
   - 학습 중에 새 커밋이 오면 화면 안의 질문 패널로 처리 방법을 묻는다.
   - 이 파일(watchdog.py)은 실행 중 바뀌지 않는다고 가정한다.
+  - 노트북(.ipynb)을 셀 단위로 표시하고 .venv의 Jupyter 커널로 실행한다.
+    셀을 수정·생성하지 않으며 실행 결과는 화면에만 표시한다(파일에 쓰지 않음).
+    이미지 출력은 .watchdog/<노트북>/ 아래 PNG로 저장하고 경로를 보여준다.
+    원격 변경으로 노트북이 바뀌면 다시 불러오고 바뀐 셀을 표시한다.
+    셀 실행 중 원격 변경이 오면 알린 뒤 3초 후 실행을 중단하고 반영한다.
 
-단축키: F2 학습 시작 · F3 학습 중지 · F5 지금 확인 · F6 강제 동기화 · Ctrl+Q 종료
+단축키: ←/→ 셀 이동 · F7 셀 실행 후 다음 셀 · F8 현재 셀부터 모두 실행 · F9 셀 실행 중단
+        F10 커널 재시작 · F2 학습 시작 · F3 학습 중지 · F5 지금 확인 · F6 강제 동기화
+        Ctrl+Q 종료
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import codecs
 from datetime import datetime
+import json
 import os
 from pathlib import Path
+import queue
 import re
 import shlex
 import signal
 import sys
 
 try:
+    from rich.console import Group
+    from rich.markdown import Markdown
+    from rich.rule import Rule
+    from rich.syntax import Syntax
     from rich.text import Text
     from textual.app import App, ComposeResult
-    from textual.containers import Horizontal, Vertical
-    from textual.widgets import Button, Footer, Input, Label, RichLog, SelectionList, Static
+    from textual.containers import Horizontal, Vertical, VerticalScroll
+    from textual.widgets import (Button, ContentSwitcher, Footer, Input, Label, RichLog, Select,
+                                 SelectionList, Static)
     from textual.widgets.selection_list import Selection
 except ImportError:  # pragma: no cover
     sys.exit("textual이 필요합니다. `python build.py --setup-only`로 환경을 구성한 뒤 "
              ".venv의 Python으로 실행하거나 `pip install textual`을 실행하세요.")
+
+try:  # 노트북 실행은 jupyter_client가 있을 때만 사용한다(requirements.txt의 jupyter에 포함).
+    from jupyter_client.manager import AsyncKernelManager
+except ImportError:  # pragma: no cover
+    AsyncKernelManager = None
 
 
 ROOT = Path(__file__).resolve().parent
@@ -44,6 +64,9 @@ DEFAULT_INTERVAL = 30  # 초
 IS_WINDOWS = sys.platform == "win32"
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
 LIST_RE = re.compile(r"^\s*(\d+)\s*:\s*(.+)$")
+OUTPUT_DIR = ROOT / ".watchdog"          # 노트북 이미지 출력 (.gitignore에 포함)
+SKIP_DIRS = {".venv", "venv", ".git", ".ipynb_checkpoints", ".watchdog"}
+PREEMPT_DELAY = 3                         # 셀 실행 중 원격 변경 시 중단까지 대기(초)
 
 
 def now():
@@ -95,6 +118,63 @@ async def git_ok(*args, timeout=120):
     return out
 
 
+# ------------------------------------------------------------------ notebooks
+def find_notebooks():
+    found = []
+    for path in sorted(ROOT.rglob("*.ipynb")):
+        rel = path.relative_to(ROOT)
+        if not SKIP_DIRS.intersection(rel.parts):
+            found.append(rel.as_posix())
+    return found
+
+
+def load_cells(rel_path):
+    """노트북의 셀을 [{key, type, source}] 로 읽는다. key는 셀 id(없으면 순번)."""
+    data = json.loads((ROOT / rel_path).read_text(encoding="utf-8"))
+    cells = []
+    for index, cell in enumerate(data.get("cells", [])):
+        source = cell.get("source", "")
+        if isinstance(source, list):
+            source = "".join(source)
+        cells.append({"key": cell.get("id") or f"#{index}",
+                      "type": cell.get("cell_type", "raw"), "source": source})
+    return cells
+
+
+def collapse_cr(text):
+    """'\\r'로 덮어쓰는 진행률 출력(tqdm 등)을 마지막 상태만 남긴다."""
+    lines = []
+    for line in text.split("\n"):
+        parts = [part for part in line.split("\r") if part]
+        lines.append(parts[-1] if parts else "")
+    return "\n".join(lines)
+
+
+class CellRun:
+    """셀 하나의 실행 결과(화면 표시 전용)."""
+
+    def __init__(self):
+        self.status = "실행 중"
+        self.count = None
+        self.items = []  # ["stream", name, text] 또는 ["rich", renderable]
+
+    def add_stream(self, name, text):
+        if self.items and self.items[-1][0] == "stream" and self.items[-1][1] == name:
+            self.items[-1][2] += text
+        else:
+            self.items.append(["stream", name, text])
+
+    def renderables(self):
+        for item in self.items:
+            if item[0] == "stream":
+                text = Text.from_ansi(collapse_cr(item[2]).rstrip("\n"))
+                if item[1] == "stderr":
+                    text.stylize("red")
+                yield text
+            else:
+                yield item[1]
+
+
 class Watchdog(App):
     TITLE = "watchdog"
     CSS = """
@@ -111,15 +191,29 @@ class Watchdog(App):
     #left Horizontal { height: auto; margin-top: 1; }
     #left Button { width: 1fr; min-width: 8; }
     #right { width: 1fr; }
-    #train_log { height: 2fr; border: round $primary; }
+    #notebook { height: 3fr; border: round $success; }
+    #nb_bar { height: auto; }
+    #nb_select { width: 1fr; }
+    #nb_bar Button { margin-left: 1; }
+    #nb_view { height: 1fr; padding: 0 1; }
+    #output { height: 2fr; border: round $primary; }
+    #out_switch, #train_log, #cell_out { height: 1fr; }
+    #cell_out { padding: 0 1; }
     #progress { height: 1; padding: 0 1; color: $accent; }
     #git_log { height: 1fr; border: round $secondary; }
     """
     BINDINGS = [
         ("f2", "train", "학습 시작"),
+        ("f4", "toggle_output", "출력 전환"),
         ("f3", "stop", "학습 중지"),
         ("f5", "check", "지금 확인"),
         ("f6", "force_sync", "강제 동기화"),
+        ("left", "move_cell(-1)", "이전 셀"),
+        ("right", "move_cell(1)", "다음 셀"),
+        ("f7", "run_cell", "셀 실행"),
+        ("f8", "run_all", "모두 실행"),
+        ("f9", "interrupt_cells", "실행 중단"),
+        ("f10", "restart_kernel", "커널 재시작"),
         ("ctrl+q", "quit", "종료"),
     ]
 
@@ -142,6 +236,18 @@ class Watchdog(App):
         self.train_started = ""
         self.prompt_sha = ""      # 질문 패널에 표시 중인 원격 커밋
         self.deferred = False     # "학습 끝나면 반영"을 선택함
+        # 노트북
+        self.nb_path = ""         # ROOT 기준 상대 경로
+        self.cells: list[dict] = []
+        self.cell_pos = 0
+        self.changed_keys: set[str] = set()   # 마지막 동기화에서 바뀐 셀
+        self.runs: dict[str, CellRun] = {}    # 셀 key → 실행 결과
+        self.running_key = ""
+        self.km = None
+        self.kc = None
+        self.kernel_lock = asyncio.Lock()
+        self.exec_task: asyncio.Task | None = None
+        self.stop_queue = False
 
     # ------------------------------------------------------------------ layout
     def compose(self) -> ComposeResult:
@@ -167,16 +273,31 @@ class Watchdog(App):
                     yield Button("확인", id="btn_check")
                     yield Button("동기화", id="btn_sync", variant="warning")
             with Vertical(id="right"):
-                yield RichLog(id="train_log", wrap=True, max_lines=5000, markup=False)
+                with Vertical(id="notebook"):
+                    with Horizontal(id="nb_bar"):
+                        yield Select([], prompt="노트북 선택", id="nb_select", compact=True)
+                        yield Button("▶ 셀", id="nb_run", compact=True)
+                        yield Button("▶▶ 모두", id="nb_runall", compact=True)
+                        yield Button("■ 중단", id="nb_interrupt", compact=True)
+                        yield Button("↻ 커널", id="nb_restart", compact=True)
+                    with VerticalScroll(id="nb_view"):
+                        yield Static(id="nb_cell")
+                with Vertical(id="output"):
+                    with ContentSwitcher(initial="train_log", id="out_switch"):
+                        yield RichLog(id="train_log", wrap=True, max_lines=5000, markup=False)
+                        with VerticalScroll(id="cell_out"):
+                            yield Static(id="cell_out_text")
                 yield Static(id="progress")
                 yield RichLog(id="git_log", wrap=True, max_lines=1000, markup=False)
         yield Footer()
 
     async def on_mount(self):
-        self.query_one("#train_log", RichLog).border_title = "train.py 출력"
         self.query_one("#git_log", RichLog).border_title = "git / watchdog"
         self.query_one("#experiments", SelectionList).border_title = "experiments"
         self.set_interval(1, self.render_status)
+        self.show_output("train")
+        self.refresh_notebook_list()
+        self.render_cell()
         self.log_git(f"Python: {self.python}")
         try:
             await self.resolve_branch()
@@ -198,6 +319,7 @@ class Watchdog(App):
         return self.proc is not None and self.proc.returncode is None
 
     def render_status(self):
+        self.update_output_title()
         short = lambda sha: sha[:7] if sha else "-------"
         sync = ("[green]최신[/]" if self.local_sha and self.local_sha == self.remote_sha
                 else "[yellow]변경 대기[/]" if self.remote_sha else "[dim]?[/]")
@@ -273,6 +395,15 @@ class Watchdog(App):
     async def sync(self, sha=None):
         """원격 커밋으로 강제 이동한다. 로컬 수정·커밋은 덮어쓰고 추적되지 않는 파일은 둔다."""
         try:
+            sha = sha or await git_ok("rev-parse", self.remote_ref)
+            clean = not await git_ok("status", "--porcelain", "--untracked-files=no")
+            if clean and await git_ok("rev-parse", "HEAD") == sha:
+                return False
+        except GitError as exc:
+            self.log_git(f"동기화 실패: {exc}", "red")
+            return False
+        await self.preempt_cells()
+        try:
             async with self.git_lock:
                 sha = sha or await git_ok("rev-parse", self.remote_ref)
                 old = await git_ok("rev-parse", "HEAD")
@@ -296,6 +427,9 @@ class Watchdog(App):
                          "`python build.py --setup-only`로 패키지를 갱신하세요.", "yellow")
         self.hide_prompt()
         self.run_worker(self.load_experiments(), group="experiments", exclusive=True)
+        self.refresh_notebook_list()
+        if self.nb_path and (self.nb_path in files.splitlines() or status):
+            self.load_notebook(self.nb_path, track_changes=True)
         return True
 
     # ----------------------------------------------------------------- prompt
@@ -372,6 +506,7 @@ class Watchdog(App):
             self.log_train(f"학습 실행 실패: {exc}", "red")
             return
         self.train_args, self.train_started = list(args), now()
+        self.show_output("train")
         self.log_train(f"[{now()}] $ python {TRAIN_SCRIPT} {' '.join(args)}", "bold cyan")
         self.run_worker(self.pump_output(self.proc), group="train")
 
@@ -440,6 +575,10 @@ class Watchdog(App):
             await actions[event.button.id]()
         elif event.button.id and event.button.id.startswith("ans_"):
             self.run_worker(self.answer(event.button.id[4:]), group="answer", exclusive=True)
+        elif event.button.id and event.button.id.startswith("nb_"):
+            await getattr(self, {"nb_run": "action_run_cell", "nb_runall": "action_run_all",
+                                 "nb_interrupt": "action_interrupt_cells",
+                                 "nb_restart": "action_restart_kernel"}[event.button.id])()
 
     def on_input_submitted(self, event: Input.Submitted):
         if event.input.id == "interval":
@@ -477,7 +616,308 @@ class Watchdog(App):
 
     async def action_quit(self):
         await self.stop_training()
+        await self.shutdown_kernel()
         self.exit()
+
+    # ---------------------------------------------------------------- notebook
+    def refresh_notebook_list(self):
+        select = self.query_one("#nb_select", Select)
+        notebooks = find_notebooks()
+        current = self.nb_path if self.nb_path in notebooks else None
+        with self.prevent(Select.Changed):
+            select.set_options([(name, name) for name in notebooks])
+            if current:
+                select.value = current
+        if self.nb_path and not current:
+            self.log_git(f"노트북이 사라졌습니다: {self.nb_path}", "yellow")
+            self.nb_path, self.cells = "", []
+            self.render_cell()
+        elif not self.nb_path and notebooks:
+            select.value = notebooks[0]  # Select.Changed → load_notebook
+
+    def load_notebook(self, rel_path, track_changes=False):
+        """노트북을 (다시) 읽는다. track_changes면 이전 내용과 비교해 바뀐 셀을 표시한다."""
+        try:
+            cells = load_cells(rel_path)
+        except (OSError, ValueError) as exc:
+            self.log_git(f"노트북을 읽지 못했습니다: {rel_path}: {exc}", "red")
+            return
+        current_key = self.cells[self.cell_pos]["key"] if self.cells else None
+        if track_changes:
+            old = {cell["key"]: cell["source"] for cell in self.cells}
+            self.changed_keys = {cell["key"] for cell in cells
+                                 if old.get(cell["key"]) != cell["source"]}
+            removed = len(set(old) - {cell["key"] for cell in cells})
+            changed = [str(i + 1) for i, cell in enumerate(cells) if cell["key"] in self.changed_keys]
+            if changed or removed:
+                detail = f"바뀐 셀 {', '.join(changed)}" if changed else ""
+                detail += f" 삭제 {removed}개" if removed else ""
+                self.log_git(f"노트북 {rel_path} 갱신: {detail.strip()}", "cyan")
+        else:
+            self.changed_keys = set()
+            self.runs = {}
+            current_key = None
+        self.nb_path, self.cells = rel_path, cells
+        keys = [cell["key"] for cell in cells]
+        self.cell_pos = (keys.index(current_key) if current_key in keys
+                         else min(self.cell_pos, max(len(cells) - 1, 0)) if track_changes else 0)
+        self.render_cell()
+
+    def render_cell(self):
+        panel = self.query_one("#notebook")
+        kernel = ("없음" if self.kc is None else "실행 중" if self.cells_busy else "대기")
+        panel.border_title = f"notebook · 커널 {kernel}"
+        view = self.query_one("#nb_cell", Static)
+        out = self.query_one("#cell_out_text", Static)
+        self.update_output_title()
+        if not self.cells:
+            panel.border_subtitle = "0 / 0"
+            view.update(Text("노트북이 없습니다." if not self.nb_path else "빈 노트북입니다.",
+                             style="dim"))
+            out.update(Text("셀 출력 없음", style="dim"))
+            return
+        cell = self.cells[self.cell_pos]
+        run = self.runs.get(cell["key"])
+        panel.border_subtitle = f"{self.cell_pos + 1} / {len(self.cells)}"
+        header = Text()
+        if cell["type"] == "code":
+            header.append(f"In [{run.count if run and run.count else ' '}]", style="bold green")
+        else:
+            header.append(cell["type"], style="bold blue")
+        if run:
+            style = {"완료": "green", "에러": "red", "중단됨": "yellow"}.get(run.status, "cyan")
+            header.append(f"  {run.status}", style=style)
+        if cell["key"] in self.changed_keys:
+            header.append("  ● 원격에서 변경됨", style="bold yellow")
+            if run:
+                header.append(" (출력은 이전 코드 기준)", style="dim")
+        if cell["type"] == "markdown":
+            body = Markdown(cell["source"])
+        elif cell["type"] == "code":
+            body = Syntax(cell["source"], "python", line_numbers=True, word_wrap=True,
+                          background_color="default")
+        else:
+            body = Text(cell["source"])
+        view.update(Group(header, body))
+        if run and run.items:
+            out.update(Group(header, Rule(style="dim"), *run.renderables()))
+        elif run:
+            out.update(Group(header, Text("(출력 없음)", style="dim")))
+        else:
+            out.update(Text("이 셀은 아직 실행하지 않았습니다.", style="dim"))
+
+    # ------------------------------------------------------------------ output
+    def show_output(self, mode):
+        """출력 패널을 'train'(train.py) 또는 'cell'(현재 셀)로 전환한다."""
+        self.query_one("#out_switch", ContentSwitcher).current = (
+            "train_log" if mode == "train" else "cell_out")
+        self.update_output_title()
+
+    def update_output_title(self):
+        output = self.query_one("#output")
+        if self.query_one("#out_switch", ContentSwitcher).current == "train_log":
+            state = "학습 중" if self.training else "대기"
+            output.border_title = f"출력 · train.py ({state})"
+        elif self.cells:
+            output.border_title = f"출력 · 셀 {self.cell_pos + 1} / {len(self.cells)}"
+        else:
+            output.border_title = "출력 · 노트북"
+        output.border_subtitle = "F4 전환"
+
+    def action_toggle_output(self):
+        current = self.query_one("#out_switch", ContentSwitcher).current
+        self.show_output("cell" if current == "train_log" else "train")
+
+    def on_select_changed(self, event: Select.Changed):
+        if event.select.id != "nb_select" or event.value is Select.NULL:
+            return
+        if event.value == self.nb_path:
+            return
+        if self.cells_busy:
+            self.notify("셀 실행 중에는 노트북을 바꿀 수 없습니다.", severity="warning")
+            with self.prevent(Select.Changed):
+                event.select.value = self.nb_path or Select.NULL
+            return
+        self.load_notebook(event.value)
+        self.run_worker(self.shutdown_kernel(), group="kernel")  # 노트북마다 새 커널
+
+    def action_move_cell(self, step):
+        if self.cells:
+            self.cell_pos = max(0, min(len(self.cells) - 1, self.cell_pos + step))
+            self.query_one("#nb_view").scroll_home(animate=False)
+            self.query_one("#cell_out").scroll_home(animate=False)
+            self.show_output("cell")
+            self.render_cell()
+
+    @property
+    def cells_busy(self):
+        return self.exec_task is not None and not self.exec_task.done()
+
+    async def action_run_cell(self):
+        if self.cells:
+            self.start_cells([self.cell_pos])
+            self.action_move_cell(1)
+
+    async def action_run_all(self):
+        if self.cells:
+            self.start_cells(list(range(self.cell_pos, len(self.cells))))
+
+    def start_cells(self, indices):
+        if AsyncKernelManager is None:
+            self.notify("jupyter_client가 없습니다. build.py --setup-only로 환경을 구성하세요.",
+                        severity="error")
+            return
+        if self.cells_busy:
+            self.notify("이미 셀을 실행 중입니다.", severity="warning")
+            return
+        keys = [self.cells[i]["key"] for i in indices if self.cells[i]["type"] == "code"]
+        if keys:
+            self.show_output("cell")
+            self.stop_queue = False
+            self.exec_task = asyncio.create_task(self.run_cells(keys))
+
+    async def run_cells(self, keys):
+        try:
+            await self.ensure_kernel()
+            for key in keys:
+                index = next((i for i, c in enumerate(self.cells) if c["key"] == key), None)
+                if self.stop_queue or index is None:
+                    break
+                # 실행 중인 셀을 보고 있었다면 다음 셀로 화면을 따라간다.
+                previous = next((i for i, c in enumerate(self.cells)
+                                 if c["key"] == self.running_key), None)
+                if previous is not None and previous == self.cell_pos:
+                    self.cell_pos = index
+                self.running_key = key
+                if not await self.execute(key, self.cells[index]["source"]):
+                    break
+        except Exception as exc:  # noqa: BLE001 - 커널 오류를 화면에 보여준다
+            self.log_git(f"노트북 실행 오류: {exc!r}", "red")
+        finally:
+            self.running_key = ""
+            self.render_cell()
+
+    async def ensure_kernel(self):
+        async with self.kernel_lock:
+            if self.kc is not None:
+                return
+            self.log_git("커널 시작 중…")
+            km = AsyncKernelManager(kernel_name="python3")
+            env = dict(os.environ, PYTHONIOENCODING="utf-8")
+            # 커널의 stdout/stderr가 TUI 화면을 깨지 않도록 버린다(출력은 iopub로 받음).
+            await km.start_kernel(cwd=str((ROOT / self.nb_path).parent), env=env,
+                                  stdout=asyncio.subprocess.DEVNULL,
+                                  stderr=asyncio.subprocess.DEVNULL)
+            kc = km.client()
+            kc.start_channels()
+            try:
+                await kc.wait_for_ready(timeout=60)
+            except RuntimeError:
+                kc.stop_channels()
+                await km.shutdown_kernel(now=True)
+                raise
+            self.km, self.kc = km, kc
+            self.log_git(f"커널 준비 완료 ({self.nb_path})", "green")
+
+    async def execute(self, key, source):
+        """셀 하나를 실행하고 출력을 모은다. 에러·중단이면 False."""
+        run = self.runs[key] = CellRun()
+        self.render_cell()
+        msg_id = self.kc.execute(source, allow_stdin=False, stop_on_error=True)
+        image_no = 0
+        while True:
+            try:
+                msg = await self.kc.get_iopub_msg(timeout=1)
+            except queue.Empty:
+                if not await self.km.is_alive():
+                    run.status = "커널 종료"
+                    break
+                continue
+            if msg["parent_header"].get("msg_id") != msg_id:
+                continue
+            kind, content = msg["msg_type"], msg["content"]
+            if kind == "status" and content.get("execution_state") == "idle":
+                break
+            if kind == "execute_input":
+                run.count = content.get("execution_count")
+            elif kind == "stream":
+                run.add_stream(content.get("name"), content.get("text", ""))
+            elif kind in ("execute_result", "display_data"):
+                if kind == "execute_result":
+                    run.count = content.get("execution_count")
+                data = content.get("data", {})
+                if "image/png" in data:
+                    image_no += 1
+                    index = next(i for i, c in enumerate(self.cells) if c["key"] == key)                         if any(c["key"] == key for c in self.cells) else 0
+                    target = (OUTPUT_DIR / Path(self.nb_path).stem /
+                              f"cell{index + 1:03d}_{image_no}.png")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(base64.b64decode(data["image/png"]))
+                    run.items.append(["rich", Text(f"[이미지] {target.relative_to(ROOT)}",
+                                                   style="magenta")])
+                elif "text/markdown" in data:
+                    run.items.append(["rich", Markdown(data["text/markdown"])])
+                elif "text/plain" in data:
+                    run.items.append(["rich", Text.from_ansi(data["text/plain"])])
+            elif kind == "error":
+                run.status = "중단됨" if content.get("ename") == "KeyboardInterrupt" else "에러"
+                run.items.append(["rich", Text.from_ansi("\n".join(content.get("traceback", [])))])
+            elif kind == "clear_output":
+                run.items.clear()
+            if self.cells and self.cells[self.cell_pos]["key"] == key:
+                self.render_cell()
+        if run.status == "실행 중":
+            run.status = "완료"
+        self.render_cell()
+        return run.status == "완료"
+
+    async def action_interrupt_cells(self):
+        await self.interrupt_cells()
+
+    async def interrupt_cells(self):
+        """대기 중인 셀을 취소하고 실행 중인 셀에 KeyboardInterrupt를 보낸다."""
+        if not self.cells_busy:
+            return
+        self.stop_queue = True
+        task = self.exec_task
+        if self.km is not None:
+            await self.km.interrupt_kernel()
+        try:
+            await asyncio.wait_for(asyncio.shield(task), 10)
+        except TimeoutError:  # 인터럽트에 반응하지 않으면 실행 대기를 포기한다
+            task.cancel()
+            self.log_git("셀이 인터럽트에 반응하지 않아 대기를 취소했습니다", "yellow")
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def preempt_cells(self):
+        """원격 변경 반영 전에 실행 중인 셀을 알리고 잠시 뒤 중단한다."""
+        if not self.cells_busy:
+            return
+        message = f"원격 변경 반영을 위해 {PREEMPT_DELAY}초 뒤 셀 실행을 중단합니다"
+        self.log_git(message, "yellow")
+        self.notify(message, severity="warning", timeout=PREEMPT_DELAY + 1)
+        self.bell()
+        await asyncio.sleep(PREEMPT_DELAY)
+        await self.interrupt_cells()
+
+    async def action_restart_kernel(self):
+        await self.interrupt_cells()
+        await self.shutdown_kernel()
+        self.runs = {}
+        self.render_cell()
+        self.log_git("커널을 종료했습니다. 다음 실행 때 새로 시작합니다")
+
+    async def shutdown_kernel(self):
+        async with self.kernel_lock:
+            kc, km, self.kc, self.km = self.kc, self.km, None, None
+            if kc is not None:
+                kc.stop_channels()
+            if km is not None:
+                try:
+                    await km.shutdown_kernel(now=True)
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 if __name__ == "__main__":
