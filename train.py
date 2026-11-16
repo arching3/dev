@@ -11,7 +11,6 @@ import argparse
 import ast
 import json
 from pathlib import Path
-import random
 
 import numpy as np
 import torch
@@ -21,7 +20,7 @@ from tqdm.auto import tqdm
 
 from config import CONFIG, get_device
 from experiments import EXPERIMENTS, select
-from utils import evaluate_history, fit
+from utils import evaluate_history, fit, seed_everything
 
 
 HISTORY_HEADER = "epoch,train_loss,train_accuracy,val_loss,val_accuracy"
@@ -78,18 +77,12 @@ def parse_args(argv=None):
     return args, selected
 
 
-def seed_everything(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
+def prepare_experiment(experiment, cfg, device):
+    """실험의 데이터로더·모델·손실 함수·optimizer를 구성한다 (노트북에서도 사용).
 
-
-def run_experiment(experiment, cfg, device):
-    """실험 하나를 학습하고 (N, 5) history를 반환한다. 가중치는 ckpt_dir/key/, history는 history_dir/key/에 저장."""
-    # 교재처럼 실험마다 같은 seed로 새 모델·optimizer·history를 구성한다.
+    반환: (net, train_loader, test_loader, criterion, optimizer)
+    """
+    # 교재처럼 실험마다 같은 seed로 새 모델·optimizer를 구성한다.
     seed_everything(cfg.seed)
     train_set = datasets.CIFAR10(root=str(cfg.data_dir), train=True, download=True,
                                  transform=experiment.train_transform())
@@ -100,12 +93,19 @@ def run_experiment(experiment, cfg, device):
                               num_workers=cfg.num_workers)
     test_loader = DataLoader(test_set, batch_size=cfg.batch_size, shuffle=False,
                              num_workers=cfg.num_workers)
-
-    tqdm.write(f"\n[{experiment.title}] Train: {len(train_set)}, Validation: {len(test_set)}, "
-               f"Epochs: {cfg.epochs}, Batch size: {cfg.batch_size}, "
-               f"Optimizer: {cfg.optimizer_summary()}")
     criterion = experiment.criterion()
     optimizer = cfg.build_optimizer(p for p in net.parameters() if p.requires_grad)
+    return net, train_loader, test_loader, criterion, optimizer
+
+
+def run_experiment(experiment, cfg, device):
+    """실험 하나를 학습하고 (N, 5) history를 반환한다. 가중치는 ckpt_dir/key/, history는 history_dir/key/에 저장."""
+    net, train_loader, test_loader, criterion, optimizer = prepare_experiment(
+        experiment, cfg, device)
+    tqdm.write(f"\n[{experiment.title}] Train: {len(train_loader.dataset)}, "
+               f"Validation: {len(test_loader.dataset)}, "
+               f"Epochs: {cfg.epochs}, Batch size: {cfg.batch_size}, "
+               f"Optimizer: {cfg.optimizer_summary()}")
     timings = []
     history = fit(net, optimizer, criterion, cfg.epochs, train_loader, test_loader,
                   device, np.zeros((0, 5)), timing_history=timings)

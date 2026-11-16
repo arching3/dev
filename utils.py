@@ -1,9 +1,56 @@
+import random
+
 import numpy as np
 from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
 from time import perf_counter
+
+
+def seed_everything(seed):
+    """난수 고정 (교재 torch_seed 대체)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+
+
+def eval_loss(loader, device, net, criterion):
+    """첫 미니배치의 손실을 계산한다. 손실 계산 그래프(make_dot) 시각화용."""
+    images, labels = next(iter(loader))
+    images, labels = images.to(device), labels.to(device)
+    return criterion(net(images), labels)
+
+
+def show_images_labels(loader, classes, net, device, n_images=50):
+    """첫 미니배치의 이미지와 정답(:예측)을 표시한다. 오답은 파란색 제목."""
+    images, labels = next(iter(loader))
+    n_images = min(n_images, len(images))
+    predicted = None
+    if net is not None:
+        net.eval()
+        with torch.no_grad():
+            predicted = net(images.to(device)).argmax(dim=1).cpu()
+
+    plt.figure(figsize=(20, 15))
+    for i in range(n_images):
+        ax = plt.subplot(5, 10, i + 1)
+        label_name = classes[labels[i]]
+        if predicted is None:
+            ax.set_title(label_name, fontsize=20)
+        else:
+            predicted_name = classes[predicted[i]]
+            color = "k" if label_name == predicted_name else "b"
+            ax.set_title(f"{label_name}:{predicted_name}", c=color, fontsize=20)
+        # Normalize(0.5, 0.5)를 되돌려 [0, 1] 범위로 표시
+        image = (images[i].numpy().transpose(1, 2, 0) + 1) / 2
+        ax.imshow(image.clip(0, 1))
+        ax.set_axis_off()
+    plt.show()
+
 
 def fit(net, optimizer, criterion, num_epochs, train_loader, test_loader, device, history,
         timing_history=None):

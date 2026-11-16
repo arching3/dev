@@ -14,9 +14,9 @@ python build.py --setup-only
 | --- | --- |
 | `config.py` | 공통 하이퍼파라미터·경로(`Config`) |
 | `experiments.py` | 실험 정의 레지스트리(`register(Experiment(...))`) |
-| `net.py` | 사용자가 직접 정의하는 모델 |
-| `utils.py` | `fit`, `evaluate_history` |
-| `train.py` | 실험 번호를 받아 학습·저장·비교 그래프 생성 |
+| `net.py` | 사용자가 직접 정의하는 모델 (`vgg19_bn`) |
+| `utils.py` | `seed_everything`, `fit`, `evaluate_history`, `eval_loss`, `show_images_labels` |
+| `train.py` | 실험 번호를 받아 학습·저장·비교 그래프 생성 (`prepare_experiment`는 노트북에서도 사용) |
 
 실험 번호를 지정해 실행합니다. 여러 번호를 함께 지정하면 한 번의 실행에서 순서대로 학습하고 하나의 그래프로 비교합니다.
 
@@ -34,7 +34,7 @@ python train.py 1 2 --epochs 10 --show
 
 Optimizer는 `config.py`의 `optimizer`(이름: `adam`, `adamw`, `sgd`, `rmsprop` 또는 `torch.optim` 클래스명)와 `optimizer_params`(lr 이외 인자)로 정합니다. 실험별로는 `overrides={"optimizer": "sgd", "optimizer_params": {"momentum": 0.9}, "lr": 0.01}`처럼, 명령행에서는 `--optimizer sgd --optimizer-param momentum=0.9 --lr 0.01`처럼 바꿉니다. optimizer가 같으면 `optimizer_params`는 병합되고, optimizer가 바뀌면 새로 지정한 값으로 대체됩니다. 새 실험은 `experiments.py` 하단에 `register(Experiment(number=..., key=..., title=..., model=..., overrides={...}))`를 추가하면 됩니다.
 
-현재 등록된 실험은 없습니다. `net.py`에 모델을 정의하고 `experiments.py` 하단에 `register(Experiment(...))`를 추가하세요. 사전학습 가중치 로드, 분류기 교체, 학습할 레이어 선택(`requires_grad`), BatchNorm·Dropout 모드는 모델에서 직접 설정합니다. 입력 크기·정규화는 실험의 `train_transform`과 `test_transform`에 지정합니다. `train.py`는 실험에 등록한 모델을 생성하고 `requires_grad=True`인 파라미터만 optimizer에 전달합니다.
+현재 등록된 실험은 1 `VGG-19-BN Resize(64)`, 2 `VGG-19-BN Resize(80)`입니다(SGD momentum=0.9, lr=0.001, batch_size=50, 5 epoch). 새 실험은 `net.py`에 모델을 정의하고 `experiments.py` 하단에 `register(Experiment(...))`를 추가하세요. 사전학습 가중치 로드, 분류기 교체, 학습할 레이어 선택(`requires_grad`), BatchNorm·Dropout 모드는 모델에서 직접 설정합니다. 입력 크기·정규화는 실험의 `train_transform`과 `test_transform`에 지정합니다. `train.py`는 실험에 등록한 모델을 생성하고 `requires_grad=True`인 파라미터만 optimizer에 전달합니다.
 
 모델 가중치 `model_final.pth`는 `ckpts/<실험 key>/`에, 기존 5열 `history.csv`는 `histories/<실험 key>/`에 저장됩니다. 같은 key로 다시 실행하면 결과를 덮어쓰므로, 결과를 구분하려면 실험 key 또는 `--ckpt-dir`와 `--history-dir`를 다르게 지정하세요. 비교 그래프는 `histories/experiments.png`로 저장되며 `--show`로 화면에도 표시할 수 있습니다.
 
