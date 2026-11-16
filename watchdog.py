@@ -11,7 +11,9 @@
     (추적되지 않는 파일 — ckpts/, histories/ 등 학습 결과 — 는 지우지 않는다.)
   - 학습 중에 새 커밋이 오면 화면 안의 질문 패널로 처리 방법을 묻는다.
   - 이 파일(watchdog.py)은 실행 중 바뀌지 않는다고 가정한다.
-  - 노트북(.ipynb)을 셀 단위로 표시하고 .venv의 Jupyter 커널로 실행한다.
+  - 노트북(.ipynb)을 셀 단위로 표시하고 선택한 Python의 Jupyter 커널로 실행한다.
+    기본 커널은 프로젝트와 상위 폴더의 .venv에서 찾으며, 없으면 현재 Python을 쓴다.
+    커널 경로에 Python 실행 파일 또는 가상환경 폴더를 입력한 뒤 적용할 수 있다.
     셀을 수정·생성하지 않으며 실행 결과는 화면에만 표시한다(파일에 쓰지 않음).
     이미지 출력은 .watchdog/<노트북>/ 아래 PNG로 저장하고 경로를 보여준다.
     원격 변경으로 노트북이 바뀌면 다시 불러오고 바뀐 셀을 표시한다.
@@ -77,6 +79,31 @@ def venv_python():
     """build.py가 만든 .venv의 Python을 우선 사용하고, 없으면 현재 인터프리터를 쓴다."""
     candidate = ROOT / ".venv" / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
     return str(candidate) if candidate.is_file() else sys.executable
+
+
+def notebook_python():
+    """프로젝트에서 가까운 .venv를 찾아 노트북의 기본 Python으로 선택한다."""
+    for directory in (ROOT, *ROOT.parents):
+        candidate = directory / ".venv" / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
+
+
+def kernel_python_path(value):
+    """실행 파일 또는 가상환경 경로를 검증한다. 상대 경로는 ROOT 기준이다."""
+    if not value.strip():
+        raise ValueError("Python 실행 파일 또는 가상환경 폴더 경로를 입력하세요.")
+    path = Path(os.path.expandvars(value.strip())).expanduser()
+    if not path.is_absolute():
+        path = ROOT / path
+    if path.is_dir():
+        path = path / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
+    # resolve()는 venv의 Python 심볼릭 링크를 시스템 Python으로 바꾸므로 쓰지 않는다.
+    path = Path(os.path.abspath(path))
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise ValueError(f"실행 가능한 Python 파일이 없습니다: {path}")
+    return str(path)
 
 
 def child_env():
@@ -195,6 +222,10 @@ class Watchdog(App):
     #nb_bar { height: auto; }
     #nb_select { width: 1fr; }
     #nb_bar Button { margin-left: 1; }
+    #kernel_bar { height: auto; }
+    #kernel_bar Label { width: auto; padding: 1; }
+    #kernel_path { width: 1fr; }
+    #kernel_bar Button { margin-left: 1; }
     #nb_view { height: 1fr; padding: 0 1; }
     #output { height: 2fr; border: round $primary; }
     #out_switch, #train_log, #cell_out { height: 1fr; }
@@ -220,6 +251,7 @@ class Watchdog(App):
     def __init__(self):
         super().__init__()
         self.python = venv_python()
+        self.kernel_python = notebook_python()
         self.interval = DEFAULT_INTERVAL
         self.branch = "?"
         self.remote = "origin"
@@ -280,6 +312,12 @@ class Watchdog(App):
                         yield Button("▶▶ 모두", id="nb_runall", compact=True)
                         yield Button("■ 중단", id="nb_interrupt", compact=True)
                         yield Button("↻ 커널", id="nb_restart", compact=True)
+                    with Horizontal(id="kernel_bar"):
+                        yield Label("커널 Python")
+                        yield Input(self.kernel_python, placeholder="Python 실행 파일 / 가상환경 폴더",
+                                    id="kernel_path")
+                        yield Button("적용", id="kernel_apply", compact=True)
+                        yield Button(".venv 자동", id="kernel_auto", compact=True)
                     with VerticalScroll(id="nb_view"):
                         yield Static(id="nb_cell")
                 with Vertical(id="output"):
@@ -299,6 +337,7 @@ class Watchdog(App):
         self.refresh_notebook_list()
         self.render_cell()
         self.log_git(f"Python: {self.python}")
+        self.log_git(f"노트북 커널 Python: {self.kernel_python}")
         try:
             await self.resolve_branch()
         except GitError as exc:
@@ -575,6 +614,8 @@ class Watchdog(App):
             await actions[event.button.id]()
         elif event.button.id and event.button.id.startswith("ans_"):
             self.run_worker(self.answer(event.button.id[4:]), group="answer", exclusive=True)
+        elif event.button.id in {"kernel_apply", "kernel_auto"}:
+            await self.select_kernel(auto=event.button.id == "kernel_auto")
         elif event.button.id and event.button.id.startswith("nb_"):
             await getattr(self, {"nb_run": "action_run_cell", "nb_runall": "action_run_all",
                                  "nb_interrupt": "action_interrupt_cells",
@@ -591,6 +632,8 @@ class Watchdog(App):
             self.wake.set()
         elif event.input.id == "extra_args":
             self.run_worker(self.action_train())
+        elif event.input.id == "kernel_path":
+            self.run_worker(self.select_kernel(), group="kernel_select", exclusive=True)
 
     async def action_train(self):
         args = self.build_train_args()
@@ -620,6 +663,33 @@ class Watchdog(App):
         self.exit()
 
     # ---------------------------------------------------------------- notebook
+    async def select_kernel(self, auto=False):
+        field = self.query_one("#kernel_path", Input)
+        if self.cells_busy:
+            self.notify("셀 실행을 중단한 뒤 커널을 변경하세요.", severity="warning")
+            return
+        try:
+            python = kernel_python_path(notebook_python() if auto else field.value)
+            if python != self.kernel_python:
+                code, _, err = await run(python, "-c", "import ipykernel_launcher", timeout=10)
+                if code != 0:
+                    raise ValueError(f"선택한 Python에서 ipykernel을 사용할 수 없습니다. "
+                                     f'"{python}" -m pip install ipykernel\n{err}')
+                # 검증하는 동안 셀 실행이 시작되었으면 기존 커널을 유지한다.
+                if self.cells_busy:
+                    self.notify("셀 실행을 중단한 뒤 커널을 변경하세요.", severity="warning")
+                    return
+                await self.shutdown_kernel()
+                self.kernel_python = python
+                self.runs = {}
+                self.render_cell()
+                self.log_git(f"노트북 커널 변경: {python} (다음 셀 실행 시 시작)", "green")
+            field.value = python
+            field.tooltip = f"선택한 커널 Python: {python}"
+        except (OSError, ValueError) as exc:
+            self.log_git(f"커널 선택 실패: {exc}", "red")
+            self.notify(str(exc), title="커널 선택 실패", severity="error")
+
     def refresh_notebook_list(self):
         select = self.query_one("#nb_select", Select)
         notebooks = find_notebooks()
@@ -801,8 +871,11 @@ class Watchdog(App):
         async with self.kernel_lock:
             if self.kc is not None:
                 return
-            self.log_git("커널 시작 중…")
+            self.log_git(f"커널 시작 중… ({self.kernel_python})")
             km = AsyncKernelManager(kernel_name="python3")
+            # 등록된 python3 kernelspec 대신 사용자가 선택한 인터프리터를 실행한다.
+            km.kernel_spec.argv = [self.kernel_python, "-m", "ipykernel_launcher",
+                                   "-f", "{connection_file}"]
             env = dict(os.environ, PYTHONIOENCODING="utf-8")
             # 커널의 stdout/stderr가 TUI 화면을 깨지 않도록 버린다(출력은 iopub로 받음).
             await km.start_kernel(cwd=str((ROOT / self.nb_path).parent), env=env,
