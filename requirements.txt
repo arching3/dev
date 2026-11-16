@@ -1,0 +1,21 @@
+# Direct dependencies, without version or platform-specific CUDA pins.
+# pip resolves transitive dependencies for the current Python and platform.
+# CUDA/cuDNN/Triton dependencies are managed by the selected PyTorch build.
+torch
+torchvision
+torchinfo
+torchviz
+numpy
+scipy
+pandas
+matplotlib
+pillow
+scikit-learn
+tqdm
+graphviz
+requests
+jupyter
+jupyterlab
+notebook
+ipykernel
+ipywidgets

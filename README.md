@@ -1,11 +1,110 @@
-# 컴퓨터 비전 학습 코드
+# Week 11 — 컴퓨터 비전 학습 환경
+
+## 이 브랜치의 실행 방법
+
+```bash
+git clone --branch week11 git@github.com:arching3/dev.git
+cd dev
+python build.py --setup-only
+```
+
+`--setup-only`는 환경만 준비하므로 `.ipynb` 작업에도 사용할 수 있습니다. 학습 진입 파일은 `train.py`(build.py 기본값)이며, CIFAR-10 데이터셋은 `data/`를 사용하고 없으면 최초 실행 시 다운로드합니다.
+
+| 파일 | 역할 |
+| --- | --- |
+| `config.py` | 공통 하이퍼파라미터·경로(`Config`) |
+| `experiments.py` | 실험 정의 레지스트리(`register(Experiment(...))`) |
+| `net.py` | 모델(아직 없음) |
+| `utils.py` | `fit`, `evaluate_history` |
+| `train.py` | 실험 번호를 받아 학습·저장·비교 그래프 생성 |
+
+실험 번호를 지정해 실행합니다. 여러 번호를 함께 지정하면 한 번의 실행에서 순서대로 학습하고 하나의 그래프로 비교합니다.
+
+```bash
+python build.py -- 1            # 환경 구성 후 실험 1
+python build.py -- 1 2          # 실험 1, 2
+python train.py all             # 등록된 모든 실험 (환경이 이미 있을 때)
+python train.py --list          # 실험 목록
+
+# 선택한 실험의 에포크를 모두 10으로 변경하고 그래프를 화면에도 표시
+python train.py 1 2 --epochs 10 --show
+```
+
+설정 우선순위는 `config.py` 기본값 < 실험별 `overrides` < 명령행 인자(`--epochs`, `--batch-size`, `--lr`, `--seed`, `--num-workers`, `--data-dir`, `--ckpt-dir`, `--history-dir`, `--optimizer`, `--optimizer-param`)입니다.
+
+Optimizer는 `config.py`의 `optimizer`(이름: `adam`, `adamw`, `sgd`, `rmsprop` 또는 `torch.optim` 클래스명)와 `optimizer_params`(lr 이외 인자)로 정합니다. 실험별로는 `overrides={"optimizer": "sgd", "optimizer_params": {"momentum": 0.9}, "lr": 0.01}`처럼, 명령행에서는 `--optimizer sgd --optimizer-param momentum=0.9 --lr 0.01`처럼 바꿉니다. optimizer가 같으면 `optimizer_params`는 병합되고, optimizer가 바뀌면 새로 지정한 값으로 대체됩니다. 새 실험은 `experiments.py` 하단에 `register(Experiment(number=..., key=..., title=..., model=..., overrides={...}))`를 추가하면 됩니다.
+
+현재 등록된 실험은 없습니다. `net.py`에 모델을 추가하고 `experiments.py`에 실험을 등록하세요. 모델 가중치 `model_final.pth`는 `ckpts/<실험 key>/`에, `history.csv`는 `histories/<실험 key>/`에 저장되고, 비교 그래프는 `histories/experiments.png`로 저장되며, `--show`로 화면에도 표시할 수 있습니다.
+
+`--script` 경로와 학습 작업 디렉터리는 `build.py`가 있는 디렉터리를 기준으로 합니다. 다른 디렉터리에서 `python /path/to/dev/build.py --setup-only`로 호출해도 환경과 패키지 파일 위치는 동일합니다. 재실행 시 `.venv`를 재사용하고 패키지 설치를 다시 확인합니다. 기존 환경의 불필요한 패키지를 제거하거나 Python 버전을 바꾸지는 않습니다.
+
+### 노트북 사용
+
+VS Code에서는 노트북 커널 선택 메뉴에서 이 저장소의 `.venv` Python을 선택합니다. 또는 환경 구성 후 다음 명령으로 JupyterLab을 실행합니다.
+
+```bash
+# Linux
+.venv/bin/python -m jupyterlab
+
+# Windows PowerShell
+.venv/Scripts/python.exe -m jupyterlab
+```
+
+이 JupyterLab에서 `Python 3 (ipykernel)` 커널을 사용합니다. `ipykernel`, JupyterLab은 requirements에 포함되어 있습니다. 사용자 전역 커널 등록은 자동으로 수행하지 않습니다.
+
+### 호환 조건과 공통 개발 환경
+
+`requirements.txt`는 학습과 노트북 작업에 필요한 주요 패키지 이름만 기록합니다. 버전, CUDA 전용 인덱스, NVIDIA 런타임과 Triton의 직접 지정을 제거하고, 하위 의존성은 pip가 현재 Python과 플랫폼에 맞춰 결정하도록 합니다.
+
+`build.py`는 CUDA 버전과 Python 버전을 함께 고려해 아래 순서로 PyTorch를 설치합니다.
+
+1. `nvidia-smi`(PATH와 OS별 기본 위치, 종료 코드와 무관하게 출력 확인) 또는 드라이버 라이브러리(`libcuda`/`nvcuda.dll`)에서 드라이버가 지원하는 최대 CUDA 버전을 확인합니다. 감지하지 못하면 원인을 출력하고 CPU용을 선택하며, macOS에서는 기본 플랫폼용 휠을 사용합니다.
+2. [PyTorch 공식 휠 인덱스](https://download.pytorch.org/whl/)에서 CUDA 배포 목록을 가져와, 드라이버 지원 범위 안에서 최신 CUDA 후보부터 확인합니다.
+3. 각 CUDA 인덱스의 휠 목록에서 이 운영체제·아키텍처(glibc 포함)에 맞는 Python ABI별 `torch`/`torchvision` 버전 쌍을 구합니다. torchvision `0.N`은 torch `2.(N-15)`와 짝을 이루므로, torch만 먼저 나온 경우에도 서로 맞는 최신 쌍을 고릅니다.
+4. 사용할 Python을 정합니다. 기존 `.venv`가 있으면 그 Python으로 고정하고, 없으면 `--python` 지정값 → 현재 Python → 시스템에서 찾은 다른 Python(PATH의 `python3.X`, Windows `py -0p`) 중 휠이 있는 높은 버전 순으로 고릅니다. 최신 CUDA 후보를 우선하며, 맞는 Python이 없으면 다음 CUDA 후보로 넘어갑니다.
+5. 선택한 Python으로 `.venv`를 만들고, 선택한 인덱스에서 `torch`와 `torchvision`을 정확한 버전으로 다시 설치하고, 해당 버전을 이번 설치에만 사용하는 임시 제약 파일에 기록합니다. 나머지 패키지를 갱신할 때 선택한 CUDA 빌드가 다른 빌드로 교체되지 않도록 합니다. `requirements.txt`에는 버전을 기록하지 않습니다.
+6. 다른 패키지와 하위 의존성은 `--upgrade --upgrade-strategy eager`로 갱신합니다. 설치 후 `pip check`를 실행하고 PyTorch·CUDA·cuDNN 버전과 CUDA 사용 가능 여부를 출력합니다.
+
+cuDNN은 설치한 PyTorch가 요구하는 호환 버전을 사용합니다. 독립적인 최신 cuDNN을 강제하지 않습니다. 두 PyTorch 휠은 기존 CPU/CUDA 빌드를 확실히 교체하기 위해 재실행 시에도 다시 설치하므로 다운로드가 발생할 수 있습니다.
+
+자동 감지를 사용하거나, 설치 대상을 명시할 수 있습니다.
+
+```bash
+# 기본값: 드라이버와 가상환경 Python에 맞춰 자동 선택
+python build.py --setup-only
+
+# CPU 전용 환경
+python build.py --setup-only --torch-backend cpu
+
+# CUDA 배포 태그를 직접 선택 (예시; 해당 환경과 호환되어야 함)
+python build.py --setup-only --torch-backend cu128
+
+# 새 .venv의 Python을 지정 (버전 또는 경로)
+python build.py --setup-only --python 3.12
+
+# 기존 .venv의 Python이 호환되지 않을 때 다시 생성
+python build.py --setup-only --recreate-venv
+
+# 자동 선택 후 실험 1, 2 실행
+python build.py -- 1 2
+```
+
+자동 모드에서 NVIDIA 드라이버가 감지됐지만 호환 휠이 없으면 안내와 함께 중단합니다. Python을 지원 버전으로 변경하거나 드라이버를 갱신하세요. CPU 설치는 `--torch-backend cpu`로 명시할 수 있습니다. 기존 `.venv`가 있으면 그 환경의 Python으로 호환성을 판단하며, 호환되지 않으면 지원 Python 버전 목록과 함께 중단합니다. 이때 `--recreate-venv`(필요하면 `--python 3.12`)로 `.venv`를 삭제 후 다시 만들 수 있습니다.
+
+패키지가 해당 운영체제·CPU 아키텍처·Python 버전을 지원해야 하며, 버전 미지정만으로 모든 플랫폼의 호환성이 보장되지는 않습니다. 자동 선택은 드라이버와 휠 배포 여부를 기준으로 하며, 구형 GPU의 연산 아키텍처까지 보장하지 않습니다. NVIDIA 드라이버와 `nvidia-smi`는 실행 환경에서 준비해야 하고, AMD ROCm 자동 선택은 지원하지 않습니다. 드라이버는 이 스크립트에서 설치하지 않습니다. Python의 `venv`·`ensurepip` 지원과 PyPI·PyTorch 인덱스 접근이 가능한 네트워크가 필요합니다. 특수한 플랫폼은 [PyTorch 공식 설치 선택기](https://pytorch.org/get-started/locally/)도 참고하세요.
+
+현재 개발 프로젝트의 공통 `../.venv`는 계속 사용할 수 있습니다. `build.py`는 저장소 내부의 별도 `.venv`만 생성·갱신합니다. 새로운 의존성은 패키지 이름으로 추가하며, 버전을 고정하지 않으므로 설치 시점에 따라 환경이 달라질 수 있습니다. 이번 변경에 대한 패키지 재설치와 GPU 학습 검증은 수행하지 않았습니다.
+
+---
+
+## 저장소 운영 방향
 
 주차별 학습 코드를 관리하고, 더 높은 컴퓨팅 성능을 갖춘 환경에서 한 번의 명령으로 가상환경 구성, 패키지 설치, 학습 실행을 이어가는 저장소입니다.
 
 ## 브랜치 운영
 
 - `main`: 저장소 목적과 공통 운영 방향을 기록합니다.
-- `week10`: 10주차 학습 코드, `build.py`, `requirements.txt`, 실행 안내를 관리합니다.
+- `week11`: 11주차 학습 코드, `build.py`, `requirements.txt`, 실행 안내를 관리합니다.
 - 이후 학습 코드는 해당 주차 브랜치에서 관리합니다.
 
 ## Windows에서 Git 설치
@@ -25,7 +124,7 @@ git --version
 SSH 키를 아직 설정하지 않았다면 HTTPS 주소로 원하는 브랜치를 복제할 수 있습니다. 비공개 저장소는 GitHub 인증이 필요합니다.
 
 ```powershell
-git clone --branch week10 https://github.com/arching3/dev.git
+git clone --branch week11 https://github.com/arching3/dev.git
 cd dev
 ```
 
@@ -37,10 +136,10 @@ Git이 설치되어 있어야 합니다. 아래 SSH 주소를 사용하려면 Gi
 
 ### 특정 브랜치만 복제
 
-10주차 작업만 필요한 경우:
+11주차 작업만 필요한 경우:
 
 ```bash
-git clone --branch week10 --single-branch git@github.com:arching3/dev.git
+git clone --branch week11 --single-branch git@github.com:arching3/dev.git
 cd dev
 python build.py --setup-only
 ```
@@ -62,22 +161,22 @@ git switch main
 git clone git@github.com:arching3/dev.git
 cd dev
 git branch -a
-git switch week10
+git switch week11
 python build.py --setup-only
 
 # 저장소 소개로 돌아가기
 git switch main
 ```
 
-이미 복제한 저장소라면 해당 디렉터리에서 `git fetch origin`으로 브랜치 정보를 갱신하고 `git switch week10`으로 전환합니다. 로컬에 없는 브랜치가 `origin`에 있으면 `git switch`가 추적 브랜치를 자동 생성합니다. 전환 전 작업 내용은 커밋하거나 `git stash`로 보관하세요.
+이미 복제한 저장소라면 해당 디렉터리에서 `git fetch origin`으로 브랜치 정보를 갱신하고 `git switch week11`으로 전환합니다. 로컬에 없는 브랜치가 `origin`에 있으면 `git switch`가 추적 브랜치를 자동 생성합니다. 전환 전 작업 내용은 커밋하거나 `git stash`로 보관하세요.
 
 ## 변경 사항을 최신 버전으로 업데이트
 
 새로 복제할 필요 없이, 기존 저장소 디렉터리에서 사용할 브랜치로 전환한 뒤 업데이트합니다.
 
 ```bash
-git switch week10
-git pull --ff-only origin week10
+git switch week11
+git pull --ff-only origin week11
 ```
 
 `main`의 README를 업데이트하려면 다음 명령을 사용합니다.
@@ -93,15 +192,15 @@ git pull --ff-only origin main
 
 ```bash
 git stash push -u -m "local work before update"
-git switch week10
-git pull --ff-only origin week10
+git switch week11
+git pull --ff-only origin week11
 # 변경을 보관했던 원래 브랜치에서 복원
 git stash pop
 ```
 
-위 예시는 `week10`에서 작업하던 경우입니다. 다른 브랜치에서 보관했다면 그 브랜치로 돌아온 뒤 `git stash pop`을 실행하세요. 복원 중 충돌이 나면 해당 파일의 충돌을 해결해야 합니다.
+위 예시는 `week11`에서 작업하던 경우입니다. 다른 브랜치에서 보관했다면 그 브랜치로 돌아온 뒤 `git stash pop`을 실행하세요. 복원 중 충돌이 나면 해당 파일의 충돌을 해결해야 합니다.
 
-패키지 목록이 바뀌었다면 `week10`에서 다음 명령으로 기존 가상환경의 의존성을 다시 설치합니다. 학습은 실행하지 않습니다.
+패키지 목록이 바뀌었다면 `week11`에서 다음 명령으로 기존 가상환경의 의존성을 다시 설치합니다. 학습은 실행하지 않습니다.
 
 ```bash
 python build.py --setup-only
@@ -125,8 +224,8 @@ python build.py --setup-only
 
 ## 환경 관리
 
-현재 개발 프로젝트에서는 루트의 `.venv`를 week1~10이 공유합니다. `week10/requirements.txt`는 이 공통 환경의 설치 버전을 기록합니다. 다른 환경에서는 저장소 내부에 별도의 `.venv`를 생성합니다. 가상환경, 데이터셋, 모델 가중치, 학습 산출물과 비밀정보는 Git에서 제외합니다.
+현재 개발 프로젝트에서는 루트의 `.venv`를 week1~11이 공유합니다. `week11/requirements.txt`에는 주요 패키지 이름을 버전 없이 기록합니다. 다른 환경에서는 저장소 내부에 별도의 `.venv`를 생성합니다. 가상환경, 데이터셋, 모델 가중치, 학습 산출물과 비밀정보는 Git에서 제외합니다.
 
-현재 기준 환경은 Python 3.14.4, Linux, CUDA 13.0용 PyTorch입니다. 패키지 버전 고정만으로 운영체제, GPU 드라이버, 데이터셋까지 재현되지는 않습니다. GPU 드라이버와 Python의 venv/pip 지원은 실행 환경에서 준비해야 하며, 플랫폼별 설치 조건은 주차 브랜치의 README에서 설명합니다.
+패키지는 현재 플랫폼과 의존성 조건에서 허용하는 최신 버전을 사용하고, CUDA·cuDNN 관련 의존성은 PyTorch 배포판에 맡깁니다. GPU 드라이버와 Python의 venv/pip 지원은 실행 환경에서 준비해야 합니다. 설치 시점에 따라 버전이 달라지므로 동일한 환경의 재현을 보장하지 않습니다.
 
 학습 진입 파일, 실행 인자, 데이터셋 준비 방법은 학습 코드를 추가하면서 구체화합니다. 실제 사용 방법과 구현 상태는 해당 주차 브랜치를 확인하세요.
