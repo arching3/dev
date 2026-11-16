@@ -31,3 +31,6 @@ wandb/
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+
+# watchdog notebook outputs
+.watchdog/
