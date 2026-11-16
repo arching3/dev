@@ -12,6 +12,7 @@ matplotlib
 pillow
 scikit-learn
 tqdm
+textual
 graphviz
 requests
 jupyter
