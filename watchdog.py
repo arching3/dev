@@ -158,13 +158,16 @@ def find_notebooks():
 def load_cells(rel_path):
     """노트북의 셀을 [{key, type, source}] 로 읽는다. key는 셀 id(없으면 순번)."""
     data = json.loads((ROOT / rel_path).read_text(encoding="utf-8"))
-    cells = []
+    cells, seen = [], set()
     for index, cell in enumerate(data.get("cells", [])):
         source = cell.get("source", "")
         if isinstance(source, list):
             source = "".join(source)
-        cells.append({"key": cell.get("id") or f"#{index}",
-                      "type": cell.get("cell_type", "raw"), "source": source})
+        key = cell.get("id") or f"#{index}"
+        if key in seen:  # 셀 복사 등으로 id가 중복되면 순번을 붙여 구분한다
+            key = f"{key}#{index}"
+        seen.add(key)
+        cells.append({"key": key, "type": cell.get("cell_type", "raw"), "source": source})
     return cells
 
 
