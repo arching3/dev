@@ -9,6 +9,7 @@
 
 import argparse
 import ast
+import json
 from pathlib import Path
 import random
 
@@ -94,6 +95,7 @@ def run_experiment(experiment, cfg, device):
                                  transform=experiment.train_transform())
     test_set = datasets.CIFAR10(root=str(cfg.data_dir), train=False, download=True,
                                 transform=experiment.test_transform())
+    net = experiment.model(len(train_set.classes)).to(device)
     train_loader = DataLoader(train_set, batch_size=cfg.batch_size, shuffle=True,
                               num_workers=cfg.num_workers)
     test_loader = DataLoader(test_set, batch_size=cfg.batch_size, shuffle=False,
@@ -102,11 +104,11 @@ def run_experiment(experiment, cfg, device):
     tqdm.write(f"\n[{experiment.title}] Train: {len(train_set)}, Validation: {len(test_set)}, "
                f"Epochs: {cfg.epochs}, Batch size: {cfg.batch_size}, "
                f"Optimizer: {cfg.optimizer_summary()}")
-    net = experiment.model(len(train_set.classes)).to(device)
     criterion = experiment.criterion()
-    optimizer = cfg.build_optimizer(net.parameters())
+    optimizer = cfg.build_optimizer(p for p in net.parameters() if p.requires_grad)
+    timings = []
     history = fit(net, optimizer, criterion, cfg.epochs, train_loader, test_loader,
-                  device, np.zeros((0, 5)))
+                  device, np.zeros((0, 5)), timing_history=timings)
 
     history_dir = cfg.history_dir / experiment.key
     ckpt_dir = cfg.ckpt_dir / experiment.key
@@ -114,6 +116,18 @@ def run_experiment(experiment, cfg, device):
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     np.savetxt(history_dir / "history.csv", history, delimiter=",", comments="",
                header=HISTORY_HEADER)
+    np.savetxt(history_dir / "timing.csv", np.asarray(timings), delimiter=",", comments="",
+               header="epoch,train_seconds,eval_seconds")
+    mean_times = np.asarray(timings)[:, 1:].mean(axis=0)
+    summary = {
+        "epochs": cfg.epochs,
+        "device": str(device),
+        "model": type(net).__name__,
+        "mean_train_seconds": float(mean_times[0]),
+        "mean_eval_seconds": float(mean_times[1]),
+    }
+    (history_dir / "timing_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8")
     torch.save(net.state_dict(), ckpt_dir / "model_final.pth")
     return history
 

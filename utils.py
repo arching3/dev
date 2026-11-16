@@ -3,9 +3,14 @@ from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
+from time import perf_counter
 
-def fit(net, optimizer, criterion, num_epochs, train_loader, test_loader, device, history):
-    """노트북과 같은 (N, 5) 학습 기록을 반환한다. criterion은 mean reduction 사용."""
+def fit(net, optimizer, criterion, num_epochs, train_loader, test_loader, device, history,
+        timing_history=None):
+    """(N, 5) 기록 반환. timing_history에는 (epoch, train초, eval초)를 추가한다.
+
+    시간은 데이터 로딩·장치 전송·연산·진행 표시를 포함한 단계 전체의 실측값이다.
+    """
     if num_epochs < 1:
         raise ValueError("num_epochs는 1 이상이어야 합니다.")
     if getattr(criterion, "reduction", "mean") != "mean":
@@ -14,18 +19,24 @@ def fit(net, optimizer, criterion, num_epochs, train_loader, test_loader, device
     if history.ndim != 2 or history.shape[1] != 5:
         raise ValueError("history의 형태는 (N, 5)여야 합니다.")
     net.to(device)
+    device = torch.device(device)
+    timings = []
     base_epoch = int(history[-1, 0]) if len(history) else 0
 
     epochs = tqdm(range(base_epoch + 1, base_epoch + num_epochs + 1),
                   desc="Epochs", position=1, leave=False)
     for epoch in epochs:
         metrics = []
+        durations = []
         for training, loader in ((True, train_loader), (False, test_loader)):
             net.train(training)
             total_loss, correct, count = 0.0, 0, 0
             phase = "Train" if training else "Validation"
             progress = tqdm(loader, desc=f"Epoch {epoch} {phase}",
                             position=2, leave=False)
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            started = perf_counter()
             with torch.set_grad_enabled(training):
                 for inputs, labels in progress:
                     inputs, labels = inputs.to(device), labels.to(device)
@@ -42,6 +53,9 @@ def fit(net, optimizer, criterion, num_epochs, train_loader, test_loader, device
                     count += batch_size
                     progress.set_postfix(loss=f"{total_loss / count:.4f}",
                                          accuracy=f"{correct / count:.2%}")
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            durations.append(perf_counter() - started)
             if count == 0:
                 raise ValueError(f"{phase} 데이터로더가 비어 있습니다.")
             metrics.extend((total_loss / count, correct / count))
@@ -50,8 +64,15 @@ def fit(net, optimizer, criterion, num_epochs, train_loader, test_loader, device
         epochs.set_postfix(loss=f"{train_loss:.4f}", val_acc=f"{val_acc:.2%}")
         tqdm.write(f"Epoch [{epoch}/{base_epoch + num_epochs}] "
                    f"loss: {train_loss:.5f}, acc: {train_acc:.2%}, "
-                   f"val_loss: {val_loss:.5f}, val_acc: {val_acc:.2%}")
+                   f"val_loss: {val_loss:.5f}, val_acc: {val_acc:.2%}, "
+                   f"train: {durations[0]:.3f}s, eval: {durations[1]:.3f}s")
         history = np.vstack((history, [epoch, *metrics]))
+        timings.append((epoch, *durations))
+    if timing_history is not None:
+        timing_history.extend(timings)
+    means = np.asarray(timings)[:, 1:].mean(axis=0)
+    tqdm.write(f"Average per epoch ({num_epochs} epochs): "
+               f"train: {means[0]:.3f}s, eval: {means[1]:.3f}s")
     return history
 
 def evaluate_history(history, output_dir=None, show=True):
