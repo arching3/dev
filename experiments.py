@@ -71,3 +71,29 @@ def select(numbers):
 
 # ---------------------------------------------------------------- experiments
 # 새 실험은 여기에 register(Experiment(...))로 추가한다.
+
+# 예시 (week10 실험 1~2). 사용하려면 net.py에 CNN_v2를 정의하고 주석을 해제한다.
+# number는 train.py에 넘기는 실험 번호, key는 ckpts/·histories/ 아래 폴더 이름이다.
+# 공통 값은 config.py를 따르고, 달라지는 값만 overrides에 적는다.
+#
+# # 실험 1: CNN_v2, 증강 없이 정규화만, SGD(lr=0.01), 30 epochs.
+# register(Experiment(
+#     number=1,
+#     key="experiment1_cnn_v2",
+#     title="Experiment 1: CNN_v2",
+#     model=net.CNN_v2,
+#     # BatchNorm 없는 CNN_v2 + 순수 SGD는 lr=0.001이면 사실상 학습되지 않아 lr=0.01을 쓴다.
+#     overrides={"epochs": 30, "optimizer": "sgd", "lr": 0.01},
+# ))
+#
+# # 실험 2: 같은 모델에 momentum=0.9 추가 (optimizer_params는 lr 이외 인자).
+# register(Experiment(
+#     number=2,
+#     key="experiment2_cnn_v2",
+#     title="Experiment 2: CNN_v2",
+#     model=net.CNN_v2,
+#     overrides={"epochs": 30, "optimizer": "sgd", "lr": 0.01,
+#                "optimizer_params": {"momentum": 0.9}},
+# ))
+#
+# # 증강을 쓰려면 train_transform=augment_transform 을 추가한다.
