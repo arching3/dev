@@ -1,9 +1,9 @@
-# Week 10 — 컴퓨터 비전 학습 환경
+# Week 11 — 컴퓨터 비전 학습 환경
 
 ## 이 브랜치의 실행 방법
 
 ```bash
-git clone --branch week10 git@github.com:arching3/dev.git
+git clone --branch week11 git@github.com:arching3/dev.git
 cd dev
 python build.py --setup-only
 ```
@@ -14,32 +14,27 @@ python build.py --setup-only
 | --- | --- |
 | `config.py` | 공통 하이퍼파라미터·경로(`Config`) |
 | `experiments.py` | 실험 정의 레지스트리(`register(Experiment(...))`) |
-| `net.py` | 모델(CNN_v2, CNN_v3, CNN_v4) |
+| `net.py` | 모델(아직 없음) |
 | `utils.py` | `fit`, `evaluate_history` |
 | `train.py` | 실험 번호를 받아 학습·저장·비교 그래프 생성 |
 
 실험 번호를 지정해 실행합니다. 여러 번호를 함께 지정하면 한 번의 실행에서 순서대로 학습하고 하나의 그래프로 비교합니다.
 
 ```bash
-python build.py -- 2            # 환경 구성 후 실험 2
-python build.py -- 2 3          # 실험 2, 3
+python build.py -- 1            # 환경 구성 후 실험 1
+python build.py -- 1 2          # 실험 1, 2
 python train.py all             # 등록된 모든 실험 (환경이 이미 있을 때)
 python train.py --list          # 실험 목록
 
 # 선택한 실험의 에포크를 모두 10으로 변경하고 그래프를 화면에도 표시
-python train.py 2 3 --epochs 10 --show
+python train.py 1 2 --epochs 10 --show
 ```
 
-설정 우선순위는 `config.py` 기본값 < 실험별 `overrides` < 명령행 인자(`--epochs`, `--batch-size`, `--lr`, `--seed`, `--num-workers`, `--data-dir`, `--output-dir`, `--optimizer`, `--optimizer-param`)입니다.
+설정 우선순위는 `config.py` 기본값 < 실험별 `overrides` < 명령행 인자(`--epochs`, `--batch-size`, `--lr`, `--seed`, `--num-workers`, `--data-dir`, `--ckpt-dir`, `--history-dir`, `--optimizer`, `--optimizer-param`)입니다.
 
 Optimizer는 `config.py`의 `optimizer`(이름: `adam`, `adamw`, `sgd`, `rmsprop` 또는 `torch.optim` 클래스명)와 `optimizer_params`(lr 이외 인자)로 정합니다. 실험별로는 `overrides={"optimizer": "sgd", "optimizer_params": {"momentum": 0.9}, "lr": 0.01}`처럼, 명령행에서는 `--optimizer sgd --optimizer-param momentum=0.9 --lr 0.01`처럼 바꿉니다. optimizer가 같으면 `optimizer_params`는 병합되고, optimizer가 바뀌면 새로 지정한 값으로 대체됩니다. 새 실험은 `experiments.py` 하단에 `register(Experiment(number=..., key=..., title=..., model=..., overrides={...}))`를 추가하면 됩니다.
 
-| 실험 | 모델·데이터 | 기본 에포크 | Optimizer | 학습률 | 배치 크기 |
-| --- | --- | --- | --- | --- | --- |
-| 2 | CNN_v4, 정규화 | 50 | Adam | 0.001 | 100 |
-| 3 | CNN_v4, 정규화 + RandomHorizontalFlip + RandomErasing | 100 | Adam | 0.001 | 100 |
-
-각 실험의 `history.csv`와 `model_final.pth`는 `outputs/experiment2_cnn_v4/`, `outputs/experiment3_cnn_v4_aug/`에 저장됩니다. 비교 그래프는 `outputs/experiments.png`로 저장되며, `--show`로 화면에도 표시할 수 있습니다.
+현재 등록된 실험은 없습니다. `net.py`에 모델을 추가하고 `experiments.py`에 실험을 등록하세요. 모델 가중치 `model_final.pth`는 `ckpts/<실험 key>/`에, `history.csv`는 `histories/<실험 key>/`에 저장되고, 비교 그래프는 `histories/experiments.png`로 저장되며, `--show`로 화면에도 표시할 수 있습니다.
 
 `--script` 경로와 학습 작업 디렉터리는 `build.py`가 있는 디렉터리를 기준으로 합니다. 다른 디렉터리에서 `python /path/to/dev/build.py --setup-only`로 호출해도 환경과 패키지 파일 위치는 동일합니다. 재실행 시 `.venv`를 재사용하고 패키지 설치를 다시 확인합니다. 기존 환경의 불필요한 패키지를 제거하거나 Python 버전을 바꾸지는 않습니다.
 
@@ -90,8 +85,8 @@ python build.py --setup-only --python 3.12
 # 기존 .venv의 Python이 호환되지 않을 때 다시 생성
 python build.py --setup-only --recreate-venv
 
-# 자동 선택 후 실험 2, 3 실행
-python build.py -- 2 3
+# 자동 선택 후 실험 1, 2 실행
+python build.py -- 1 2
 ```
 
 자동 모드에서 NVIDIA 드라이버가 감지됐지만 호환 휠이 없으면 안내와 함께 중단합니다. Python을 지원 버전으로 변경하거나 드라이버를 갱신하세요. CPU 설치는 `--torch-backend cpu`로 명시할 수 있습니다. 기존 `.venv`가 있으면 그 환경의 Python으로 호환성을 판단하며, 호환되지 않으면 지원 Python 버전 목록과 함께 중단합니다. 이때 `--recreate-venv`(필요하면 `--python 3.12`)로 `.venv`를 삭제 후 다시 만들 수 있습니다.
@@ -109,7 +104,7 @@ python build.py -- 2 3
 ## 브랜치 운영
 
 - `main`: 저장소 목적과 공통 운영 방향을 기록합니다.
-- `week10`: 10주차 학습 코드, `build.py`, `requirements.txt`, 실행 안내를 관리합니다.
+- `week11`: 11주차 학습 코드, `build.py`, `requirements.txt`, 실행 안내를 관리합니다.
 - 이후 학습 코드는 해당 주차 브랜치에서 관리합니다.
 
 ## Windows에서 Git 설치
@@ -129,7 +124,7 @@ git --version
 SSH 키를 아직 설정하지 않았다면 HTTPS 주소로 원하는 브랜치를 복제할 수 있습니다. 비공개 저장소는 GitHub 인증이 필요합니다.
 
 ```powershell
-git clone --branch week10 https://github.com/arching3/dev.git
+git clone --branch week11 https://github.com/arching3/dev.git
 cd dev
 ```
 
@@ -141,10 +136,10 @@ Git이 설치되어 있어야 합니다. 아래 SSH 주소를 사용하려면 Gi
 
 ### 특정 브랜치만 복제
 
-10주차 작업만 필요한 경우:
+11주차 작업만 필요한 경우:
 
 ```bash
-git clone --branch week10 --single-branch git@github.com:arching3/dev.git
+git clone --branch week11 --single-branch git@github.com:arching3/dev.git
 cd dev
 python build.py --setup-only
 ```
@@ -166,22 +161,22 @@ git switch main
 git clone git@github.com:arching3/dev.git
 cd dev
 git branch -a
-git switch week10
+git switch week11
 python build.py --setup-only
 
 # 저장소 소개로 돌아가기
 git switch main
 ```
 
-이미 복제한 저장소라면 해당 디렉터리에서 `git fetch origin`으로 브랜치 정보를 갱신하고 `git switch week10`으로 전환합니다. 로컬에 없는 브랜치가 `origin`에 있으면 `git switch`가 추적 브랜치를 자동 생성합니다. 전환 전 작업 내용은 커밋하거나 `git stash`로 보관하세요.
+이미 복제한 저장소라면 해당 디렉터리에서 `git fetch origin`으로 브랜치 정보를 갱신하고 `git switch week11`으로 전환합니다. 로컬에 없는 브랜치가 `origin`에 있으면 `git switch`가 추적 브랜치를 자동 생성합니다. 전환 전 작업 내용은 커밋하거나 `git stash`로 보관하세요.
 
 ## 변경 사항을 최신 버전으로 업데이트
 
 새로 복제할 필요 없이, 기존 저장소 디렉터리에서 사용할 브랜치로 전환한 뒤 업데이트합니다.
 
 ```bash
-git switch week10
-git pull --ff-only origin week10
+git switch week11
+git pull --ff-only origin week11
 ```
 
 `main`의 README를 업데이트하려면 다음 명령을 사용합니다.
@@ -197,15 +192,15 @@ git pull --ff-only origin main
 
 ```bash
 git stash push -u -m "local work before update"
-git switch week10
-git pull --ff-only origin week10
+git switch week11
+git pull --ff-only origin week11
 # 변경을 보관했던 원래 브랜치에서 복원
 git stash pop
 ```
 
-위 예시는 `week10`에서 작업하던 경우입니다. 다른 브랜치에서 보관했다면 그 브랜치로 돌아온 뒤 `git stash pop`을 실행하세요. 복원 중 충돌이 나면 해당 파일의 충돌을 해결해야 합니다.
+위 예시는 `week11`에서 작업하던 경우입니다. 다른 브랜치에서 보관했다면 그 브랜치로 돌아온 뒤 `git stash pop`을 실행하세요. 복원 중 충돌이 나면 해당 파일의 충돌을 해결해야 합니다.
 
-패키지 목록이 바뀌었다면 `week10`에서 다음 명령으로 기존 가상환경의 의존성을 다시 설치합니다. 학습은 실행하지 않습니다.
+패키지 목록이 바뀌었다면 `week11`에서 다음 명령으로 기존 가상환경의 의존성을 다시 설치합니다. 학습은 실행하지 않습니다.
 
 ```bash
 python build.py --setup-only
@@ -229,7 +224,7 @@ python build.py --setup-only
 
 ## 환경 관리
 
-현재 개발 프로젝트에서는 루트의 `.venv`를 week1~10이 공유합니다. `week10/requirements.txt`에는 주요 패키지 이름을 버전 없이 기록합니다. 다른 환경에서는 저장소 내부에 별도의 `.venv`를 생성합니다. 가상환경, 데이터셋, 모델 가중치, 학습 산출물과 비밀정보는 Git에서 제외합니다.
+현재 개발 프로젝트에서는 루트의 `.venv`를 week1~11이 공유합니다. `week11/requirements.txt`에는 주요 패키지 이름을 버전 없이 기록합니다. 다른 환경에서는 저장소 내부에 별도의 `.venv`를 생성합니다. 가상환경, 데이터셋, 모델 가중치, 학습 산출물과 비밀정보는 Git에서 제외합니다.
 
 패키지는 현재 플랫폼과 의존성 조건에서 허용하는 최신 버전을 사용하고, CUDA·cuDNN 관련 의존성은 PyTorch 배포판에 맡깁니다. GPU 드라이버와 Python의 venv/pip 지원은 실행 환경에서 준비해야 합니다. 설치 시점에 따라 버전이 달라지므로 동일한 환경의 재현을 보장하지 않습니다.
 

@@ -54,7 +54,8 @@ def parse_args(argv=None):
                         metavar="KEY=VALUE",
                         help="optimizer 인자, 반복 지정 가능 (예: momentum=0.9 weight_decay=5e-4)")
     parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--ckpt-dir", type=Path)
+    parser.add_argument("--history-dir", type=Path)
     parser.add_argument("--show", action="store_true", help="학습 곡선을 화면에도 표시")
     args = parser.parse_args(argv)
 
@@ -86,7 +87,7 @@ def seed_everything(seed):
 
 
 def run_experiment(experiment, cfg, device):
-    """실험 하나를 학습하고 (N, 5) history를 반환한다. 결과는 output_dir/key/에 저장."""
+    """실험 하나를 학습하고 (N, 5) history를 반환한다. 가중치는 ckpt_dir/key/, history는 history_dir/key/에 저장."""
     # 교재처럼 실험마다 같은 seed로 새 모델·optimizer·history를 구성한다.
     seed_everything(cfg.seed)
     train_set = datasets.CIFAR10(root=str(cfg.data_dir), train=True, download=True,
@@ -107,11 +108,13 @@ def run_experiment(experiment, cfg, device):
     history = fit(net, optimizer, criterion, cfg.epochs, train_loader, test_loader,
                   device, np.zeros((0, 5)))
 
-    output_dir = cfg.output_dir / experiment.key
-    output_dir.mkdir(parents=True, exist_ok=True)
-    np.savetxt(output_dir / "history.csv", history, delimiter=",", comments="",
+    history_dir = cfg.history_dir / experiment.key
+    ckpt_dir = cfg.ckpt_dir / experiment.key
+    history_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    np.savetxt(history_dir / "history.csv", history, delimiter=",", comments="",
                header=HISTORY_HEADER)
-    torch.save(net.state_dict(), output_dir / "model_final.pth")
+    torch.save(net.state_dict(), ckpt_dir / "model_final.pth")
     return history
 
 
@@ -127,7 +130,7 @@ def main(argv=None):
 
     cli = {"epochs": args.epochs, "batch_size": args.batch_size, "lr": args.lr,
            "seed": args.seed, "num_workers": args.num_workers,
-           "data_dir": args.data_dir, "output_dir": args.output_dir,
+           "data_dir": args.data_dir, "ckpt_dir": args.ckpt_dir, "history_dir": args.history_dir,
            "optimizer": args.optimizer,
            "optimizer_params": dict(args.optimizer_param) or None}
     try:
@@ -146,8 +149,8 @@ def main(argv=None):
         histories[experiment.title] = run_experiment(experiment, cfg, device)
 
     # 선택한 실험들을 실험당 1행(손실·정확도 2열)으로 비교한다.
-    evaluate_history(histories, output_dir=base.output_dir, show=args.show)
-    print(f"결과 저장: {base.output_dir.resolve()}")
+    evaluate_history(histories, output_dir=base.history_dir, show=args.show)
+    print(f"가중치: {base.ckpt_dir.resolve()}\nhistory·그래프: {base.history_dir.resolve()}")
 
 
 if __name__ == "__main__":

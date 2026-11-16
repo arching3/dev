@@ -10,7 +10,7 @@ from typing import Any, Callable, Mapping
 import torch.nn as nn
 from torchvision import transforms
 
-from net import CNN_v2, CNN_v3, CNN_v4, CNN_v5, CNN_v6  # noqa: F401  (새 실험에서 바로 쓰도록 노출)
+import net  # noqa: F401  (새 실험에서 net.<모델>로 사용)
 
 
 # ---------------------------------------------------------------- transforms
@@ -70,85 +70,4 @@ def select(numbers):
     return [EXPERIMENTS[n] for n in dict.fromkeys(numbers)]
 
 # ---------------------------------------------------------------- experiments
-# 실험 1: CNN_v2, 증강 없이 정규화만, SGD, 30 epochs.
-register(Experiment(
-    number=1,
-    key="experiment1_cnn_v2",
-    title="Experiment 1: CNN_v2",
-    model=CNN_v2,
-    # BatchNorm 없는 CNN_v2 + 순수 SGD는 기울기가 작아 lr=0.001이면 사실상 학습되지 않는다 (노트북: lr=0.01).
-    overrides={"epochs": 30, "optimizer": "sgd", "lr": 0.01},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 2: CNN_v2, 증강 없이 정규화만, SGD(lr=0.01)+momentum=0.9, 30 epochs.
-register(Experiment(
-    number=2,
-    key="experiment2_cnn_v2",
-    title="Experiment 2: CNN_v2",
-    model=CNN_v2,
-    overrides={"epochs": 30, "optimizer": "sgd", "lr": 0.01, "optimizer_params": {"momentum": 0.9}},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 3: CNN_v2, 증강 없이 정규화만, Adam, 30 epochs.
-register(Experiment(
-    number=3,
-    key="experiment3_cnn_v2",
-    title="Experiment 3: CNN_v2",
-    model=CNN_v2,
-    overrides={"epochs": 30, "optimizer": "adam"},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 4: CNN_v3, 증강 없이 정규화만, Adam, 30 epochs.
-register(Experiment(
-    number=4,
-    key="experiment4_cnn_v3",
-    title="Experiment 4: CNN_v3",
-    model=CNN_v3,
-    overrides={"epochs": 30},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 5: CNN_v4, 증강 없이 정규화만, Adam, 30 epochs.
-register(Experiment(
-    number=5,
-    key="experiment5_cnn_v4",
-    title="Experiment 5: CNN_v4",
-    model=CNN_v4,
-    overrides={"epochs": 30},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 6: CNN_v4, 증강 + RandomHorizontalFlip/RandomErasing, Adam, 30 epochs.
-register(Experiment(
-    number=6,
-    key="experiment6_cnn_v4_aug",
-    title="Experiment 6: CNN_v4 + augmentation",
-    model=CNN_v4,
-    train_transform=augment_transform,
-    overrides={"epochs": 30, "optimizer": "adam"},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 7: CNN_v5, CNN_v4에 Residual 구조를 적용한 모델 + augmentation, Adam.
-register(Experiment(
-    number=7,
-    key="experiment7_cnn_v5_aug",
-    title="Experiment 7: CNN_v5 + augmentation",
-    model=CNN_v5,
-    train_transform=augment_transform,
-    overrides={"epochs": 30, "optimizer": "adam"},
-))
-
-# ---------------------------------------------------------------- experiments
-# 실험 8: CNN_v6, 8 residual blocks + inter-block BatchNorm/Dropout + augmentation, Adam.
-register(Experiment(
-    number=8,
-    key="experiment8_cnn_v6_aug",
-    title="Experiment 8: CNN_v6 + augmentation",
-    model=CNN_v6,
-    train_transform=augment_transform,
-    overrides={"epochs": 30, "optimizer": "adam"},
-))
+# 새 실험은 여기에 register(Experiment(...))로 추가한다.

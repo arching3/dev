@@ -37,7 +37,8 @@ class Config:
     seed: int = 123
     num_workers: int = 0
     data_dir: Path = ROOT / "data"
-    output_dir: Path = ROOT / "outputs"
+    ckpt_dir: Path = ROOT / "ckpts"          # 모델 가중치(<key>/model_final.pth)
+    history_dir: Path = ROOT / "histories"   # history.csv와 비교 그래프
     # optimizer 종류와 lr 이외의 인자(momentum, weight_decay, betas 등)
     optimizer: str = "adam"
     optimizer_params: Mapping[str, Any] = field(default_factory=dict)
