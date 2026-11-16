@@ -2,6 +2,17 @@
 
 주차별 학습 코드를 관리하고, 더 높은 컴퓨팅 성능을 갖춘 환경에서 한 번의 명령으로 가상환경 구성, 패키지 설치, 학습 실행을 이어가는 저장소입니다.
 
+## Week 11 모델 설정 및 시간 측정
+
+현재 등록된 실험은 없습니다. `net.py`에 모델을 정의하고 `experiments.py` 하단에 `register(Experiment(...))`를 추가하세요. 사전학습 가중치 로드, 분류기 교체, 학습할 레이어 선택(`requires_grad`), BatchNorm·Dropout 모드는 모델에서 직접 설정합니다. 입력 크기·정규화는 실험의 `train_transform`과 `test_transform`에 지정합니다. `train.py`는 실험에 등록한 모델을 생성하고 `requires_grad=True`인 파라미터만 optimizer에 전달합니다.
+
+모델 가중치 `model_final.pth`는 `ckpts/<실험 key>/`에, 기존 5열 `history.csv`는 `histories/<실험 key>/`에 저장됩니다. 같은 key로 다시 실행하면 결과를 덮어쓰므로, 결과를 구분하려면 실험 key 또는 `--ckpt-dir`와 `--history-dir`를 다르게 지정하세요. 비교 그래프는 `histories/experiments.png`로 저장되며 `--show`로 화면에도 표시할 수 있습니다.
+
+학습 시간은 에포크마다 train과 eval(검증)을 각각 측정해 출력합니다. 각 단계의 데이터 로딩, 장치 전송, 연산, 진행 표시 시간을 포함하고, CUDA에서는 측정 전후에 동기화합니다. 데이터셋·모델 준비, 가중치 다운로드 및 결과 저장은 측정에서 제외합니다. 첫 에포크를 포함한 모든 에포크의 산술평균을 출력하고 아래 파일에도 기록합니다.
+
+- `histories/<실험 key>/timing.csv`: `epoch,train_seconds,eval_seconds`
+- `histories/<실험 key>/timing_summary.json`: 평균 train/eval 시간(초), 에포크 수, 장치 및 모델 설정
+
 ## 브랜치 운영
 
 - `main`: 저장소 목적과 공통 운영 방향을 기록합니다.
